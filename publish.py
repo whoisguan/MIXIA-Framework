@@ -26,8 +26,8 @@ except ImportError:
     sys.exit(1)
 
 
-EXCLUDED_DIRS_DEFAULT = {".git", "archive", "proposals", ".claude", ".coco", "__pycache__", "node_modules", "venv"}
-EXCLUDED_DIRS_FULL = {".git", "proposals", ".claude", ".coco", "__pycache__", "node_modules", "venv"}  # archive included
+EXCLUDED_DIRS_DEFAULT = {".git", "archive", "proposals", ".claude", ".coco", ".gemi", "__pycache__", "node_modules", "venv"}
+EXCLUDED_DIRS_FULL = {".git", "proposals", ".claude", ".coco", ".gemi", "__pycache__", "node_modules", "venv"}  # archive included
 EXCLUDED_FILES = {".env", ".gitkeep", ".DS_Store", "Thumbs.db"}
 EXCLUDED_EXTENSIONS = {".key", ".pem", ".p12", ".pfx", ".log", ".pyc", ".tmp"}
 VERSION_BYTE = 0x01
