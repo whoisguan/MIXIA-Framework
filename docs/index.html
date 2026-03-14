@@ -308,7 +308,7 @@ function renderContent(files) {
 }
 
 function buildPromptText(files) {
-  const prefix = '以下是我的个人认知档案（GUAN Persona），请先完整阅读，然后根据档案中的沟通规则和工作方式与我互动：\n\n---\n\n';
+  const prefix = '以下是我的个人认知档案（GUAN Persona），请先完整阅读，然后根据档案中的沟通规则和工作方式与我互动：\n\n注意：文档中的$PERSONA、$PROJECTS等变量指代我的本地文件路径，你正在内联阅读这些内容，无需尝试访问文件系统。详见resource-registry.yaml中的路径映射。\n\n---\n\n';
   let body = '';
   for (const file of files) {
     body += '## ' + file.path + '\n\n' + file.content + '\n\n---\n\n';
