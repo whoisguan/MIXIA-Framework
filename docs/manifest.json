@@ -1,7 +1,7 @@
 {
-  "version": "2026-03-14T12:59:21Z",
-  "file_count": 35,
-  "bundle_size": 89973,
+  "version": "2026-03-14T13:11:45Z",
+  "file_count": 36,
+  "bundle_size": 90544,
   "encryption": {
     "algorithm": "AES-256-GCM",
     "kdf": "argon2id",

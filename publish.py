@@ -26,7 +26,8 @@ except ImportError:
     sys.exit(1)
 
 
-EXCLUDED_DIRS = {".git", "archive", "proposals", ".claude", "__pycache__", "node_modules", "venv"}
+EXCLUDED_DIRS_DEFAULT = {".git", "archive", "proposals", ".claude", "__pycache__", "node_modules", "venv"}
+EXCLUDED_DIRS_FULL = {".git", "proposals", ".claude", "__pycache__", "node_modules", "venv"}  # archive included
 EXCLUDED_FILES = {".env", ".gitkeep", ".DS_Store", "Thumbs.db"}
 EXCLUDED_EXTENSIONS = {".key", ".pem", ".p12", ".pfx", ".log", ".pyc", ".tmp"}
 VERSION_BYTE = 0x01
@@ -39,12 +40,12 @@ KDF_PARALLELISM = 4
 KEY_LEN = 32
 
 
-def collect_files(source_dir: Path) -> list[dict]:
+def collect_files(source_dir: Path, excluded_dirs: set) -> list[dict]:
     """Recursively collect all files from source_dir, excluding certain directories."""
     files = []
     for root, dirs, filenames in os.walk(source_dir):
         # Filter out excluded directories in-place
-        dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
+        dirs[:] = [d for d in dirs if d not in excluded_dirs]
 
         for filename in sorted(filenames):
             if filename in EXCLUDED_FILES:
@@ -107,6 +108,12 @@ def main():
         default=None,
         help="Encryption secret key (will prompt if not provided)",
     )
+    parser.add_argument(
+        "--include-private",
+        action="store_true",
+        default=False,
+        help="Include archive/personal-private.md in the bundle",
+    )
     args = parser.parse_args()
 
     source_dir = Path(args.source).resolve()
@@ -123,9 +130,16 @@ def main():
             print("Error: Secret key cannot be empty.")
             sys.exit(1)
 
+    # Determine exclusion set
+    if args.include_private:
+        print("  [WARNING] Including personal-private data in bundle!")
+        excluded_dirs = EXCLUDED_DIRS_FULL
+    else:
+        excluded_dirs = EXCLUDED_DIRS_DEFAULT
+
     # Collect files
     print(f"Scanning {source_dir} ...")
-    files = collect_files(source_dir)
+    files = collect_files(source_dir, excluded_dirs)
     if not files:
         print("Error: No files found to bundle.")
         sys.exit(1)
@@ -137,6 +151,7 @@ def main():
         "files": files,
         "version": now,
         "file_count": len(files),
+        "includes_private": args.include_private,
     }
     bundle_json = json.dumps(bundle_data, ensure_ascii=False, indent=2)
 
