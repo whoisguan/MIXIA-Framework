@@ -157,8 +157,8 @@
   <div class="loading" id="loading"><span class="spinner"></span>正在解密，请稍候...</div>
 
   <div class="actions" id="actions">
-    <button onclick="copyWithPrompt()">复制（含提示词）</button>
-    <button onclick="copyRaw()">复制原文</button>
+    <button onclick="copyWork()">复制（工作版）</button>
+    <button onclick="copyFull()">复制（含私人信息）</button>
     <button onclick="lockVault()" style="background:#6b2020;">锁定</button>
   </div>
 
@@ -324,18 +324,24 @@ function buildRawText(files) {
   return body;
 }
 
-async function copyWithPrompt() {
-  if (!decryptedFiles) return;
-  const text = buildPromptText(decryptedFiles);
-  await navigator.clipboard.writeText(text);
-  showToast('已复制（含提示词）');
+function filterWork(files) {
+  return files.filter(f => !f.path.startsWith('archive/'));
 }
 
-async function copyRaw() {
+async function copyWork() {
   if (!decryptedFiles) return;
-  const text = buildRawText(decryptedFiles);
+  const workFiles = filterWork(decryptedFiles);
+  const text = buildPromptText(workFiles);
   await navigator.clipboard.writeText(text);
-  showToast('已复制原文');
+  showToast('已复制工作版（不含私人信息）');
+}
+
+async function copyFull() {
+  if (!decryptedFiles) return;
+  if (!confirm('确认包含私人信息（生日、八字等）？\n仅在你信任当前AI平台时使用。')) return;
+  const text = buildPromptText(decryptedFiles);
+  await navigator.clipboard.writeText(text);
+  showToast('已复制完整版（含私人信息）');
 }
 
 function showError(msg) {
