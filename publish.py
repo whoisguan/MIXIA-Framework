@@ -26,7 +26,9 @@ except ImportError:
     sys.exit(1)
 
 
-EXCLUDED_DIRS = {".git", "archive", "proposals", ".claude"}
+EXCLUDED_DIRS = {".git", "archive", "proposals", ".claude", "__pycache__", "node_modules", "venv"}
+EXCLUDED_FILES = {".env", ".gitkeep", ".DS_Store", "Thumbs.db"}
+EXCLUDED_EXTENSIONS = {".key", ".pem", ".p12", ".pfx", ".log", ".pyc", ".tmp"}
 VERSION_BYTE = 0x01
 SALT_LEN = 16
 IV_LEN = 12
@@ -45,6 +47,10 @@ def collect_files(source_dir: Path) -> list[dict]:
         dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
 
         for filename in sorted(filenames):
+            if filename in EXCLUDED_FILES:
+                continue
+            if Path(filename).suffix.lower() in EXCLUDED_EXTENSIONS:
+                continue
             filepath = Path(root) / filename
             rel_path = filepath.relative_to(source_dir).as_posix()
             try:

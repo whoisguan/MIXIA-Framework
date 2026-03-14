@@ -159,6 +159,7 @@
   <div class="actions" id="actions">
     <button onclick="copyWithPrompt()">复制（含提示词）</button>
     <button onclick="copyRaw()">复制原文</button>
+    <button onclick="lockVault()" style="background:#6b2020;">锁定</button>
   </div>
 
   <div class="content-area" id="contentArea"></div>
@@ -166,7 +167,7 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/argon2-browser@1.18.0/dist/argon2-bundled.min.js"></script>
+<script src="argon2-bundled.min.js"></script>
 <script>
 let decryptedFiles = null;
 let manifest = null;
@@ -275,6 +276,7 @@ async function startDecrypt() {
 
     // Render content
     renderContent(decryptedFiles);
+    document.getElementById('keyInput').value = '';
 
   } catch (e) {
     if (e.message && e.message.includes('密钥错误')) {
@@ -355,6 +357,15 @@ function showToast(msg) {
   el.textContent = msg;
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+function lockVault() {
+  decryptedFiles = null;
+  document.getElementById('contentArea').innerHTML = '';
+  document.getElementById('contentArea').style.display = 'none';
+  document.getElementById('actions').style.display = 'none';
+  document.getElementById('keyInput').value = '';
+  showToast('已锁定');
 }
 
 // Allow Enter key to trigger decrypt
