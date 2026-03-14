@@ -144,7 +144,7 @@ def main():
     print(f"  Encrypted bundle size: {len(encrypted_bundle)} bytes")
 
     # Write output files
-    output_dir = Path(__file__).resolve().parent / "public"
+    output_dir = Path(__file__).resolve().parent / "docs"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     bundle_path = output_dir / "bundle.enc"
