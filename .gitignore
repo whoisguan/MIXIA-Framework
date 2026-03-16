@@ -1,5 +1,25 @@
+# Python
 __pycache__/
 *.pyc
-.env
 venv/
+
+# Environment / Secrets
+.env
+*.key
+*.pem
+*.bin
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Dependencies
 node_modules/
+
+# Private memory (MUST NOT commit)
+.**/private/
+.*/private/

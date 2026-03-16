@@ -99,8 +99,8 @@ def main():
     parser.add_argument(
         "--source",
         type=str,
-        default=r"C:\Users\GUANZHENGHENG\persona",
-        help="Path to the persona source directory",
+        default=os.environ.get("PERSONA_DIR", os.path.join(os.path.expanduser("~"), "persona")),
+        help="Path to the persona source directory (default: $PERSONA_DIR or ~/persona)",
     )
     parser.add_argument(
         "--key",
