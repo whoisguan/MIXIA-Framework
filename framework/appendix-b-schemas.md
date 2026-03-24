@@ -54,7 +54,7 @@ status: "active"               # active | archived | deprecated
 | type | MUST | axiom / principle / heuristic / pattern |
 | merge_key | MUST | 语义化唯一键，防止重复写入 |
 | title | MUST | 简短标题，一行以内 |
-| salience | MUST | 1-10，决定复审频率和加载优先级 |
+| salience | MUST | 1-10，决定复审频率和加载优先级（9-10=公理级必加载, 7-8=高频, 4-6=普通, 1-3=降温） |
 | created | MUST | 创建日期 |
 | last_reviewed | SHOULD | 最近一次复审日期 |
 | aliases | SHOULD | 帮助模糊检索的别名列表 |

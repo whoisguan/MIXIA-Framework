@@ -220,8 +220,11 @@ echo "  下一步: 编辑 $DIR/core/boot.md"
 
 ## A.5 首次 Session Log 模板
 
+文件名：`sessions/YYYY-MM/YYYY-MM-DD-slot-A-[6位随机ID].md`
+
 ```markdown
-# YYYY-MM-DD Session Log
+<!-- sid:[6位ID] slot:A booted:[HH:MM] -->
+# YYYY-MM-DD Session Log | Slot: A | sid: [6位ID]
 
 ## Session 1（首次）
 

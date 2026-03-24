@@ -45,8 +45,21 @@ ON session_start:
 
   MUST NOT read .other/private/ → any other member's private space
 
+  # Tier A+: Cross-window awareness (v1.2)
+  SHOULD scan sessions/YYYY-MM/ for today's ALL slot files
+  FOR each slot file:
+    SHOULD read "completed items" and "decisions" sections
+    SHOULD skip low-priority blocks (candidate insights, external AI call details)
+  IF same slot has multiple files:
+    MUST keep only the most recently modified one (dedup)
+  MAX slots to read: 8 (by most recent modification time)
+  IF no sessions today:
+    SHOULD look back up to 7 days for most recent session
+    IF no sessions in 7 days: skip Tier A+
+
   AFTER boot_complete:
     SHOULD output brief status: last session summary + pending tasks
+    SHOULD report parallel sessions detected (other slots active today)
     IF first_boot: SHOULD output: "系统就绪。建议先完成一个小任务验证协作流程。"
 ```
 
@@ -157,7 +170,9 @@ FUNCTION calculate_risk_score(task):
     score += 2
   IF task.lines_changed > 150 OR task.directories > 2 OR task.changes_public_api:
     score += 1
-  RETURN score
+  IF task.spec_incomplete OR task.acceptance_criteria_vague:
+    score -= 2  # reduces score but does NOT exempt from review
+  RETURN max(score, 0)
 
 RULE orchestration_decision:
   MUST run spec_gate BEFORE calculate_risk_score
@@ -322,7 +337,51 @@ ON session_end:
 
 ---
 
-## D.12 Operational Definitions
+## D.12 Auto-Save (v1.2)
+
+```
+RULE auto_save:
+  TRIGGER on ANY of:
+    - HUMAN signals closure: "做完了", "下一个", "换个任务", "先这样"
+    - tests passed AND results reported to HUMAN
+    - external review completed AND adoption decision reported
+    - project work log updated (signals task completion)
+    - task completed AND waiting for HUMAN's next instruction
+
+  MUST NOT trigger when:
+    - task is in progress (tools running, code being written, tests pending)
+    - new instruction just received and not yet processed
+    - less than 10 minutes since last auto-save
+    - pure discussion with no code or decision output
+
+  ON trigger:
+    MUST write session log silently (no HUMAN confirmation needed)
+    MUST report completion in one line: "Auto-saved to slot-[X] | trigger: [N]"
+    SHOULD append machine-readable marker to session log (e.g., HTML comment)
+    IF HUMAN sends new message during auto-save: prioritize new message, defer save
+```
+
+---
+
+## D.13 Salience Calibration (v1.2)
+
+```
+RULE salience_calibration:
+  # Salience scale interpretation
+  9-10: axiom-level, MUST load on every boot
+  7-8:  high-frequency, SHOULD load when task matches
+  4-6:  normal, MAY load on demand
+  1-3:  cooling, load only when explicitly searched
+
+  # Distribution health check
+  IDEAL distribution: Zipfian gradient (most cards 4-7, few at extremes)
+  WARNING: if > 70% of cards have salience 5-7, calibration needed
+  ACTION: during periodic review, re-evaluate salience against actual usage
+```
+
+---
+
+## D.14 Operational Definitions
 
 Terms used in this specification that require precise interpretation:
 
@@ -358,7 +417,7 @@ minimal_context := for external AI calls, include ONLY:
 
 ---
 
-## D.13 Card Retrieval Protocol
+## D.15 Card Retrieval Protocol
 
 ```
 RULE card_retrieval:
@@ -387,7 +446,7 @@ RULE card_retrieval:
 
 ---
 
-## D.14 Implementation Checklist
+## D.16 Implementation Checklist
 
 An AI system implementing this specification MUST support:
 
@@ -409,5 +468,5 @@ An AI system implementing this specification SHOULD support:
 ---
 
 *End of AI-Executable Specification.*
-*Framework version: 1.0 | Spec version: 1.0*
+*Framework version: 1.2 | Spec version: 1.2*
 *Produced by the MIXIA Collective.*
