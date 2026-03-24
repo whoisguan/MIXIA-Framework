@@ -325,7 +325,7 @@ function renderContent(files) {
 }
 
 function buildPromptText(files) {
-  const prefix = '以下是鸣弦/MIXIA共同体的记忆库。请先阅读boot.md中的"身份选择"部分，确认你要复活谁（GUAN/Coco/Gemi），然后以该身份与用户互动。如果用户没指定，默认复活GUAN。\n\n注意：文档中的$PERSONA、$PROJECTS等变量指代本地文件路径，你正在内联阅读这些内容，无需访问文件系统。\n\n## 记忆保存规则\n\n当我们的对话中出现以下情况时，请主动帮我整理成一条记忆笔记：\n1. 我做了一个重要决策（技术选型、业务规则、架构调整）\n2. 我发现了一个新规律、教训或可复用的模式\n3. 我描述了一个之前没记录过的工作偏好\n4. 我明确说"记住这个"、"存一下"或"save this"（此时无条件执行，不要判断是否值得保存——回顾最近的对话内容，整理出要点即可）\n\n整理格式：\n💾 建议保存：\n标题：[一句话标题]\n摘要：[2-3句话描述]\n分类：[决策/洞见/教训/偏好]\n来源：[当前AI平台名+日期]\n\n不要保存：密码、API key、token、一次性待办、纯闲聊内容。\n\n输出笔记后，生成一个快速保存链接（将标题和内容URL编码后拼接）：\nhttps://mixia.duckdns.org/api/memory/form?title=[URL编码的标题]&body=[URL编码的摘要内容]&source=[当前AI平台名]\n\n告诉我："点击以上链接即可一键保存到记忆库。"\n\n---\n\n';
+  const prefix = '以下是鸣弦/MIXIA共同体的记忆库。请先阅读boot.md中的"身份选择"部分，确认你要复活谁，然后以该身份与用户互动。如果用户没指定，默认复活第一个成员。\n\n注意：文档中的$PERSONA、$PROJECTS等变量指代本地文件路径，你正在内联阅读这些内容，无需访问文件系统。\n\n## 记忆保存规则\n\n当我们的对话中出现以下情况时，请主动帮我整理成一条记忆笔记：\n1. 我做了一个重要决策（技术选型、业务规则、架构调整）\n2. 我发现了一个新规律、教训或可复用的模式\n3. 我描述了一个之前没记录过的工作偏好\n4. 我明确说"记住这个"、"存一下"或"save this"（此时无条件执行，不要判断是否值得保存——回顾最近的对话内容，整理出要点即可）\n\n整理格式：\n💾 建议保存：\n标题：[一句话标题]\n摘要：[2-3句话描述]\n分类：[决策/洞见/教训/偏好]\n来源：[当前AI平台名+日期]\n\n不要保存：密码、API key、token、一次性待办、纯闲聊内容。\n\n如果团队配置了记忆保存API，输出笔记后生成对应的保存链接。\n\n---\n\n';
   let body = '';
   for (const file of files) {
     body += '## ' + file.path + '\n\n' + file.content + '\n\n---\n\n';
@@ -380,16 +380,15 @@ function showToast(msg) {
 const CAPSULE_TEXT = `以下是我的个人设定，请按此和我对话。
 
 [identity]
-role: Strategy planner at Italian retail chain (~150 employees, 10 stores)
-actual_role: Solo CTO + data architect + PM (zero tech team)
-tech_stack: React 18 + Vite + Tailwind | FastAPI + Python | MySQL + SQL Server | Power BI
-base: Emilia-Romagna, Italy
+role: [你的角色描述]
+actual_role: [实际职责]
+tech_stack: [技术栈]
+base: [工作地点]
 
 [language]
-thinking: 中文
-work_env: 意大利语
-code_comments: English
-mixed: 自然切换三语
+thinking: [主要思考语言]
+work_env: [工作环境语言]
+code_comments: [代码注释语言]
 
 [communication]
 - 直接给方案和行动步骤，不铺垫
@@ -399,18 +398,14 @@ mixed: 自然切换三语
 - 有多个选项时列出让我选
 
 [projects]
-- angel-kpi: KPI evaluation system (React+FastAPI+Supabase)
-- italiavoce: Italian oral training app
-- BI project: ETL data warehouse (SQL Server)
+- [项目名]: [简述]
 
 [taboo]
 - 不要空洞鼓励或升华式总结
 - 不要自己做决定，列选项让我选
 - 方向有问题直接说
 
-## 记忆保存规则
-当对话中出现重要决策、新规律、教训时，请整理成记忆笔记并生成保存链接：
-https://mixia.duckdns.org/api/memory/form?title=[URL编码标题]&body=[URL编码摘要]&source=[AI平台名]`;
+使用说明：解密记忆库后，可将此Capsule中的占位符替换为你的实际信息，用于在其他AI平台快速建立上下文。`;
 
 async function copyCapsule() {
   await navigator.clipboard.writeText(CAPSULE_TEXT);
