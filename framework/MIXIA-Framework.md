@@ -1,4 +1,4 @@
-# 鸣弦/MIXIA 团队模型框架 v1.2
+# 鸣弦/MIXIA 团队模型框架 v2.0
 
 ## 人与AI协作的团队操作系统
 
@@ -14,6 +14,15 @@
 - [3. 协作协议](#3-协作协议-protocol)
 - [4. 多LLM编排](#4-多llm编排-multi-llm-orchestration)
 - [5. 实操SOP](#5-实操sop-setup--operations)
+  - [5.5 部署安全体系](#55-deployment-safety-system)
+  - [5.6 Hook机械强制](#56-hook-based-mechanical-enforcement)
+  - [5.7 CU定义与Review Gate矩阵](#57-cu-definition--review-gate-matrix)
+  - [5.8 三态权限模型](#58-three-state-permission-model)
+  - [5.9 ISB交互预算](#59-isb-interaction-budget)
+  - [5.10 结构化锚点](#510-structured-anchors-protocol)
+  - [5.11 验证事件持久化](#511-verification-event-persistence)
+  - [5.12 速度模式](#512-speed-mode-quantification)
+  - [5.13 Challenge输出分级](#513-challenge-output-tiering)
 - [6. 治理与演化](#6-治理与演化-governance)
 - [致谢](#致谢)
 - [附录](#附录)
@@ -727,6 +736,852 @@ mkdir -p persona/indexes
 2. 共享记忆中该成员的贡献**保留**
 3. 角色职责重新分配给其他成员
 4. 在 session log 中记录变更
+
+---
+
+### 5.5 Deployment Safety System
+
+Deployment Safety System
+
+
+### 1.1 Overview
+
+Production deployment is the highest-consequence action an AI-assisted development session can perform. Unlike code changes (which can be reverted locally), a failed deployment affects live users immediately. The Deployment Safety System treats every production deployment as a gated operation requiring explicit verification at each step.
+
+中文摘要：部署安全体系将每次生产部署视为需要逐步显式验证的受控操作。与可在本地回滚的代码改动不同，部署失败会立即影响线上用户。
+
+### 1.2 Trigger Conditions
+
+The system activates when any of the following signals are detected:
+
+| Signal | Examples |
+|--------|----------|
+| Shell command targets a production host | `git pull` + production IP/domain, `scp`/`rsync` + production target |
+| Service management on production | `systemctl restart`, `docker compose`, `schtasks /Run` + production host |
+| User language signals | "deploy", "push to server", "update server", "go live" |
+| Remote file transfer to production | `Copy-Item -ToSession` targeting a production IP |
+
+**Important:** Trigger = entry into the verification flow, not immediate prohibition. Some triggered actions (e.g., `Copy-Item` for config files) may qualify for the exemption path (Section 1.6).
+
+### 1.3 Standard Deployment Methods
+
+Two deployment methods are defined. Method A is the default; Method B is the fallback.
+
+#### Method A: Git-Based (projects with Git)
+
+```
+1. Local:   git push origin master
+2. Server:  cd [deploy_path] && git pull origin master
+3. Server:  Restart service (systemctl / schtasks)
+4. Server:  curl health check endpoint
+```
+
+**Rule:** Code files MUST NOT be transferred via `Copy-Item`, `scp`, or `rsync` when the project has a Git repository. Git push + pull is the only permitted code transfer path.
+
+#### Method B: Remote Transfer (emergency, no-Git scenarios)
+
+```
+1. Validate target path against the project infrastructure map
+2. Create a timestamped backup on the server
+3. Transfer files (excluding .env)
+4. For frontend dist: clear target, then copy
+5. Restart service + health check
+```
+
+**Rule:** Method B requires an explicit explanation of why Method A is not available. It incurs a +1 risk score penalty in the Trigger Matrix (Section 3 of the Multi-LLM document).
+
+中文摘要：两种标准部署方式——Git-based（默认，代码文件禁止用文件拷贝传输）和远程传输（紧急后备，需说明为何不用Git，风险评分+1）。
+
+### 1.4 Mandatory Pre-Deployment Checklist (6 Items)
+
+Every deployment must pass all six checks before execution. Failure of any item halts the deployment.
+
+| # | Check | Method | Pass Condition |
+|---|-------|--------|----------------|
+| 1 | **Target path confirmed** | Read `deploy_path` from the project infrastructure map | Path matches intended target |
+| 2 | **Local git status clean** | `git status` | No uncommitted changes |
+| 3 | **Local changes pushed** | `git log origin..HEAD` | Empty (all commits pushed) |
+| 4 | **Server current commit** | SSH: `git log -1 --oneline` | Displayed to user for verification |
+| 5 | **Server workspace clean** | SSH: `git status --short` | No dirty files (dirty files flagged as "unknown origin") |
+| 6 | **User confirmation** | Display command list, wait for "confirm" / "go" | Explicit user approval received |
+
+```
+Pre-deployment checklist:
+  [1] Target path: /opt/project-alpha .......................... PASS
+  [2] Local git status clean .................................. PASS
+  [3] Local changes pushed (git log origin..HEAD: empty) ...... PASS
+  [4] Server commit: abc1234 "Add user API endpoint" .......... INFO
+  [5] Server workspace clean .................................. PASS
+  [6] User confirmation ....................................... WAITING
+
+  Commands to execute:
+    ssh user@your-server "cd /opt/project-alpha && git pull origin master"
+    ssh user@your-server "systemctl restart project-alpha"
+    curl -s -o /dev/null -w "%{http_code}" https://your-domain.com/health
+
+  Confirm? (reply "go" to proceed)
+```
+
+### 1.5 Absolute Prohibitions
+
+The following actions are **unconditionally prohibited** in the deployment context:
+
+1. **Git-based projects using file copy for code.** If the project has a Git repository, code files must use `git push` + `git pull`. No exceptions.
+2. **Direct code editing on the server without commit.** All changes must originate from the local repository.
+3. **Overwriting server `.env` files via transfer.** Environment files may only be edited directly on the server.
+4. **`git push --force` to production branches.** Force-pushing to production is never permitted.
+5. **Automatic deployment without user confirmation.** Every deployment requires explicit user approval, even in speed mode (速度模式).
+6. **Skipping the checklist.** "Urgent" is not an exemption. The checklist is designed to complete in under 60 seconds.
+
+### 1.6 Exemption Scenarios
+
+The following operations bypass the full checklist but still require user confirmation:
+
+| Operation | Reason for Exemption |
+|-----------|---------------------|
+| Configuration file transfer (non-code, e.g., `.env.production`) | Not code — no git conflict risk |
+| Static asset hot-update (images, fonts) | No service restart required |
+| Log / backup download (server → local) | Read-only direction, no production impact |
+
+### 1.7 Post-Deployment Health Check
+
+Immediately after deployment, verify the service is reachable:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" [health-url]
+```
+
+- **Expected responses must be documented.** For example, a 401 response from an auth-protected endpoint means the service is running (authentication is active).
+- **Failure:** Output the rollback command. Do not auto-execute the rollback — wait for the user to decide.
+
+### 1.8 Concurrent Deployment Lock
+
+To prevent two parallel sessions from deploying to the same server simultaneously:
+
+1. Before deployment, check for a lock file on the target server.
+2. If a lock exists and is less than 15 minutes old, **abort** and report.
+3. If no lock exists (or the existing lock is stale), create a lock file with the current session ID and timestamp.
+4. After deployment completes (success or failure), remove the lock.
+
+This mechanism coordinates with the parallel session system (see Cognitive Copilot document, Section 2.3) to prevent deployment races.
+
+### 1.9 Post-Deployment State Update
+
+After a successful deployment, update the project state file:
+
+```yaml
+# project-states/project-alpha.yaml
+sync_status: in_sync
+last_server_deploy:
+  commit: "abc1234"
+  deployed_by: "slot-A"
+  deployed_at: "2026-04-02T14:30:00+02:00"
+  method: "git-based"
+```
+
+This enables cross-session deployment awareness: the next `/boot` can detect that a deployment occurred and warn if local code has diverged.
+
+### 1.10 Error Handling
+
+| Error | Action |
+|-------|--------|
+| SSH/PS connection failure | Report failure, do not retry automatically |
+| Server git workspace dirty | List dirty files, do not auto-clean |
+| `git pull` conflict | Stop immediately, report conflict |
+| Service restart failure | Output rollback command, wait for user decision |
+
+中文摘要：部署安全体系包含：触发条件检测、两种标准部署方式（Git优先）、6项强制检查清单（目标路径/本地状态/已push/服务器commit/服务器干净/用户确认）、6条绝对禁止、豁免场景、健康检查、并发锁（15分钟过期）、部署后状态更新和错误处理。"紧急"不是跳过检查的理由——检查清单设计为60秒内完成。
+
+---
+
+---
+
+### 5.6 Hook-Based Mechanical Enforcement
+
+Hook-Based Mechanical Enforcement
+
+
+### 2.1 The Problem: AI Rule Compliance Is Probabilistic
+
+Rules loaded as text instructions (`.claude/rules/` files) depend on the AI retaining them in context. Under long sessions or heavy context usage, the AI runtime may compact older context, causing rule compliance to degrade. This is not a bug in any particular AI model — it is an inherent property of finite-context systems.
+
+**The solution:** For rules where violation has high cost and false-positive enforcement has low cost, move enforcement from "AI remembers the rule" to "the harness mechanically blocks the violation." This is the hook system.
+
+中文摘要：AI规则遵守是概率性的——长session中上下文压缩可能导致规则丢失。对于违规代价高、误拦截代价低的规则，将强制执行从"AI记住规则"转移到"工具链机械拦截"。
+
+### 2.2 Hook Types
+
+The GUAN Framework uses two hook attachment points provided by the Claude Code harness:
+
+#### PreToolUse Hooks
+
+Execute **before** a tool call is permitted. Can block the call (`exitCode: 1`) or allow it (`exitCode: 0`).
+
+| Hook | Trigger | Purpose |
+|------|---------|---------|
+| `block-remote-write` | Any `Bash` command containing `ssh`, `scp`, `rsync`, `Copy-Item`, `Invoke-Command` combined with a production host pattern | Intercepts remote write operations and requires user confirmation via PROMPT |
+| `protect-env-files` | Any `Edit` or `Write` tool targeting a file matching `*.env*` pattern | Prevents accidental modification of environment files |
+| `count-cu` | Any `Edit` tool call | Increments a per-session CU (Change Unit) counter; triggers a warning when the batch limit (5 CU) is approached |
+
+#### PostToolUse Hooks
+
+Execute **after** a tool call completes. Cannot block (the action already happened) but can log and alert.
+
+| Hook | Trigger | Purpose |
+|------|---------|---------|
+| `track-agent-call` | Any `Bash` command containing `codex` or `gemini` | Records external agent invocations to a daily log file for `/save`-time reconciliation |
+
+### 2.3 Design Principles
+
+**Principle 1: Only hook high-cost, low-false-positive rules.**
+
+Not every rule should become a hook. The decision matrix:
+
+| | Low violation cost | High violation cost |
+|---|---|---|
+| **High false-positive rate** | Rule file only (规则文件即可) | Rule file + ISB reminder (规则+提醒) |
+| **Low false-positive rate** | Rule file only | **Hook** (机械拦截) |
+
+Examples:
+- "Remind user to verify in browser" → low violation cost, high false-positive rate → rule file only
+- "Block remote write to production without confirmation" → high violation cost, low false-positive rate → **hook**
+
+**Principle 2: Hooks are layered, not monolithic.**
+
+Each hook enforces exactly one rule. Hooks do not contain business logic or make judgment calls. They pattern-match and gate/log.
+
+**Principle 3: Hooks degrade gracefully.**
+
+If a hook script fails to execute (e.g., script not found, permission error), the tool call proceeds. Hooks are safety nets, not hard gates — a broken safety net should not prevent all work.
+
+### 2.4 Hook Configuration Format
+
+Hooks are configured in the Claude Code `settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "command": "bash /path/to/hooks/block-remote-write.sh \"$input\"",
+        "timeout": 5000
+      },
+      {
+        "matcher": "Edit|Write",
+        "command": "bash /path/to/hooks/protect-env-files.sh \"$input\"",
+        "timeout": 3000
+      },
+      {
+        "matcher": "Edit",
+        "command": "bash /path/to/hooks/count-cu.sh \"$input\"",
+        "timeout": 3000
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "command": "bash /path/to/hooks/track-agent-call.sh \"$input\"",
+        "timeout": 3000
+      }
+    ]
+  }
+}
+```
+
+### 2.5 Hook Script Contract
+
+Each hook script must:
+
+1. Accept tool input as the first argument (JSON string).
+2. Return exit code 0 (allow) or 1 (block, PreToolUse only).
+3. Write a human-readable reason to stdout if blocking.
+4. Complete within its timeout (default: 5 seconds).
+5. Not modify any project files or state (read-only + log-only).
+
+Example `block-remote-write.sh` (simplified):
+
+```bash
+#!/bin/bash
+# PreToolUse hook: block remote write operations without user confirmation
+INPUT="$1"
+
+# Check if command targets a remote host with write intent
+if echo "$INPUT" | grep -qE '(ssh|scp|rsync|Copy-Item|Invoke-Command)' && \
+   echo "$INPUT" | grep -qE '(192\.168\.|your-server|your-domain\.com)'; then
+  echo "BLOCKED: Remote write operation detected. Use deployment checklist."
+  exit 1
+fi
+
+exit 0
+```
+
+### 2.6 CU Counter Hook Detail
+
+The `count-cu` hook maintains a running CU count per session:
+
+1. On each `Edit` tool call, increment a counter stored in a temporary file (`/tmp/.claude-cu-count-YYYYMMDD-[session_id]`).
+2. When the counter reaches **4 CU** (one below the batch limit), write a warning to stdout: "Approaching batch limit (4/5 CU). Consider saving progress."
+3. When the counter reaches **5 CU**, write: "Batch limit reached (5/5 CU). Additional changes require a new batch."
+4. The counter resets when the user acknowledges the batch limit or explicitly requests continuation.
+
+This provides a mechanical backstop for the batch limit rule, independent of whether the AI has retained the rule in context.
+
+中文摘要：Hook体系分两类——PreToolUse（执行前拦截：远程写操作拦截、.env保护、CU计数）和PostToolUse（执行后记录：agent调用追踪）。设计三原则：只hook高代价低误报的规则、每个hook只执行一条规则、hook故障时优雅降级不阻塞工作。Hook脚本必须只读、有超时、返回退出码。CU计数hook在临近批量限制时自动警告。
+
+---
+
+---
+
+### 5.7 CU Definition & Review Gate Matrix
+
+CU (Change Unit) Definition
+
+
+### 3.1 Definition
+
+**1 CU (Change Unit) = one file, one contiguous modification region (hunk).**
+
+（1 CU = 一个文件中的一个连续修改区域）
+
+Counting rules:
+
+| Scenario | CU Count |
+|----------|----------|
+| One file, one contiguous edit (regardless of line count) | 1 CU |
+| One file, two non-adjacent edits (two hunks) | 2 CU |
+| One file, three non-adjacent edits | 3 CU |
+| New file created | 1 CU |
+| File deleted | 1 CU |
+| Two files, one edit each | 2 CU |
+
+**Key clarification:** "Contiguous" means the modified lines form a single unbroken block. Inserting a line at line 10 and another at line 50 of the same file = 2 CU, not 1.
+
+### 3.2 CU as the Universal Change Metric
+
+All framework rules that reference "changes" or "modifications" use CU as the unit:
+
+| Rule | v1.2 Wording | v2.0 Wording |
+|------|-------------|-------------|
+| Batch limit (SOP Rule 1) | "max 5 changes per batch" | "max 5 CU per batch" |
+| Codex Review Gate threshold | "3 or more code changes" | "3 or more CU" |
+| Challenge Trigger 1 | "more than 5 changes" | "more than 5 CU" |
+
+This eliminates ambiguity: "I changed one file in three places" is unambiguously 3 CU, not 1 change.
+
+### 3.3 CU × Risk Review Gate Matrix
+
+The v1.2 Codex Review Gate used a single dimension (change count) to determine review depth. v2.0 introduces a two-dimensional matrix combining CU count with risk score.
+
+| CU Count | Risk 0-1 | Risk 2-3 | Risk >= 4 |
+|----------|----------|----------|-----------|
+| **1-2 CU** | Direct execution (直接执行) | Direct execution | Codex review required |
+| **3-5 CU** | Fast track: show plan → user confirm → execute (跳过Codex) | Codex review | Codex review + suggest batching |
+| **6+ CU** | Codex review | Codex review + strong batching recommendation | Codex review + **mandatory** batching |
+
+**Fast track conditions** (skip Codex, show plan only):
+- CU <= 5 AND risk score <= 1
+- Changes confined to a single module (no frontend-backend coupling)
+- No database changes
+- User explicitly in speed mode or said "quick"
+
+中文摘要：CU（Change Unit）定义为"一个文件中的一个连续修改区域（hunk）"。所有涉及"改动"计数的规则统一使用CU作为度量单位。v2.0引入CU×风险分的二维审查矩阵，取代v1.2的单维阈值：低CU+低风险直接执行，中CU+低风险走快速通道（展示计划但跳过Codex），高CU或高风险触发完整Codex审查。
+
+---
+
+---
+
+### 5.8 Three-State Permission Model
+
+Three-State Permission Model
+
+
+### 4.1 Three States
+
+The GUAN Framework v2.0 introduces a three-state permission model for all AI tool operations:
+
+| State | Behavior | Use Case |
+|-------|----------|----------|
+| **ALLOW** | Tool call proceeds without interruption | Low-risk, routine operations (local file edits, read operations) |
+| **PROMPT** | Tool call is paused; user must confirm before it proceeds | Medium-risk operations (remote commands, file deletion, deployment steps) |
+| **DENY** | Tool call is blocked unconditionally; no override available | Prohibited operations (sending secrets to external agents, force-pushing to production) |
+
+### 4.2 Permission Assignment
+
+Permissions are assigned at two levels:
+
+**Level 1: Static (configured in settings or rule files)**
+
+```yaml
+# Example permission policy (illustrative)
+permissions:
+  Bash:
+    local_commands: ALLOW
+    remote_write_commands: PROMPT        # ssh/scp + production host
+    destructive_commands: DENY           # rm -rf, git reset --hard on production
+  Edit:
+    local_project_files: ALLOW
+    env_files: DENY                      # .env files mechanically blocked
+  Write:
+    local_project_files: ALLOW
+    env_files: DENY
+```
+
+**Level 2: Dynamic (computed by hooks or AI judgment)**
+
+A hook may upgrade or downgrade a permission based on context:
+- The `block-remote-write` hook upgrades `Bash` commands matching remote-write patterns from ALLOW to PROMPT.
+- The `protect-env-files` hook upgrades `Edit`/`Write` calls targeting `.env*` files from ALLOW to DENY.
+
+### 4.3 Override Rules
+
+**DENY → PROMPT override (incident-logged):**
+
+In exceptional circumstances, a DENY-state operation can be upgraded to PROMPT (requiring user confirmation). This override:
+1. Must be explicitly requested by the user ("I understand the risk, let me confirm and proceed").
+2. Triggers an **incident record** in the session log:
+   ```
+   <!-- mixia:data:permission-override from=DENY to=PROMPT tool=[tool] reason=[user-stated-reason] ts=[ISO8601] -->
+   ```
+3. Is logged in the session's verification events (Section 7).
+4. Cannot be applied to the "9 Absolute Prohibitions" from v1.2 — those remain DENY with no override path.
+
+**PROMPT → ALLOW downgrade:**
+
+Not permitted. PROMPT operations always require user confirmation. There is no "auto-approve" mechanism.
+
+**ALLOW → PROMPT upgrade:**
+
+Any rule or hook can upgrade ALLOW to PROMPT. This is the standard mechanism for context-dependent gatekeeping (e.g., a normally-ALLOW command becomes PROMPT when it targets a production server).
+
+### 4.4 Relationship to v1.2 Security Model
+
+The three-state model is a refinement, not a replacement:
+
+| v1.2 Concept | v2.0 Mapping |
+|-------------|-------------|
+| 9 Absolute Prohibitions | DENY (no override) |
+| 5 High-Risk Confirmation Rules | PROMPT |
+| All other operations | ALLOW (default) |
+| Hook-blocked operations | Dynamic ALLOW → PROMPT or ALLOW → DENY |
+
+中文摘要：三态权限模型将v1.2的二元允许/禁止扩展为三态——ALLOW（直接执行）、PROMPT（暂停等确认）、DENY（无条件拦截）。权限在两个层级分配：静态配置和动态hook。DENY可被用户在特殊情况下升级为PROMPT但必须记录incident；PROMPT不可降级为ALLOW；ALLOW可被升级为PROMPT。v1.2的9条绝对禁止映射为不可覆盖的DENY。
+
+---
+
+---
+
+### 5.9 ISB Interaction Budget
+
+ISB Interaction Budget
+
+
+### 5.1 The Problem: Notification Overload
+
+Each rule in the GUAN Framework (cognitive collection, multi-LLM suggestion, browser verification, batch limit warning, speed mode reminder) independently decides to notify the user. When multiple rules trigger simultaneously, the user receives a wall of prompts at the end of every response. After 3-5 repetitions, **banner blindness** sets in — the user stops reading all of them, including the important ones.
+
+### 5.2 Two-Tier Notification Model
+
+Notifications are classified into two tiers based on urgency:
+
+**Tier 1: Immediate Interruption (never merged, always shown)**
+
+| Notification | Reason |
+|-------------|--------|
+| Security alert (credential detected) | Immediate action required to prevent leak |
+| Challenge mode trigger (high-risk decision) | Decision quality degrades with delay |
+| Deployment gate trigger | Production impact, cannot defer |
+| Direct answer to user's question | Core function, not a notification |
+
+**Tier 2: Deferred Merge (batched into ISB at response end)**
+
+| Notification | Merge Behavior |
+|-------------|---------------|
+| Multi-LLM suggestion | Merged into ISB block |
+| Browser verification reminder | Merged into ISB block |
+| Speed mode reminder | Merged into ISB block |
+| Workload estimation (unless "just a small change" trigger) | Merged into ISB block |
+| Cognitive collection candidate | Fully silent — collected during `/save` retrospective (Section 8) |
+
+### 5.3 ISB Block Format
+
+When 2 or more Tier 2 notifications are pending at the end of a response, they are merged into a single block:
+
+```
+---
+Session Notes:
+- Multi-LLM: [task description] can optionally use [Codex/Gemini] review (reply "go" to invoke)
+- Browser verification: [what changed] — recommend refreshing to confirm
+- Speed mode: this decision is recommended for post-session review
+```
+
+If only 1 Tier 2 notification is pending, it is displayed in its original format (no ISB wrapper).
+
+### 5.4 Budget Limits
+
+| Category | Limit per Response |
+|----------|-------------------|
+| Tier 1 (immediate interruption) | Unlimited (safety cannot be rate-limited) |
+| Tier 2 (ISB merged) | Maximum 3 items per ISB block |
+| Overflow | Deferred to next response |
+
+### 5.5 Adaptive Degradation
+
+If the user ignores the same category of Tier 2 notification **3 consecutive times within the current session**, that category is demoted to **silent mode** for the remainder of the session:
+
+- The notification is no longer displayed to the user.
+- It is still recorded in the session log as an HTML annotation:
+  ```
+  <!-- mixia:meta:isb-degraded category=[category] count=3 ts=[ISO8601] -->
+  ```
+- The count resets on every `/boot` — degradation does not persist across sessions.
+
+**Rationale:** If the user has ignored "browser verification" three times, they have made a conscious choice. Continuing to display it wastes attention budget. But the annotation preserves the record for observability.
+
+中文摘要：ISB交互预算解决多条规则各自通知导致的"通知过载"问题。通知分两级：立即中断（安全警报、Challenge触发、部署关卡——不合并）和延迟合并（多LLM建议、浏览器验证等——攒到回复末尾统一显示）。每次回复最多3条合并通知。用户在session内连续3次忽略同类通知→该类通知降级为静默（仅写注释），不跨session持久化。
+
+---
+
+---
+
+### 5.10 Structured Anchors Protocol
+
+Structured Anchors Protocol
+
+
+### 6.1 Purpose
+
+Session logs are written for two audiences:
+1. **Humans** who read them linearly to review a day's work.
+2. **AI loaders** (Tier A+) that parse them at `/boot` to extract only decisions and key context.
+
+Without structural markers, the AI loader must read entire session logs and use heuristic text matching to find relevant sections. This is fragile and token-expensive. Structured anchors provide deterministic parse points.
+
+### 6.2 Anchor Format
+
+Anchors use HTML comments following the MIXIA Unified Annotation Schema:
+
+```
+<!-- mixia:section:start name=[section-name] ts=[ISO8601] -->
+[section content]
+<!-- mixia:section:end name=[section-name] ts=[ISO8601] -->
+```
+
+### 6.3 Registered Section Names
+
+| Name | Purpose | Written By | Read By |
+|------|---------|-----------|---------|
+| `decisions` | Key decisions made during the session | `/save` Phase 1 | Tier A+ loader (always read) |
+| `detail` | Completed task details and descriptions | `/save` Phase 1 | Tier A+ loader (skipped — too verbose) |
+| `verification` | Verification events and review records | `/save` Phase 1 | Tier A+ loader (skipped — low priority for cross-window context) |
+
+**New section names** must be registered in the Annotation Schema document before use.
+
+### 6.4 Tier A+ Parsing Algorithm
+
+At `/boot` time, the Tier A+ loader processes each session log file:
+
+**Priority path (anchored log):**
+1. Detect `<!-- mixia:section:start name=` markers.
+2. Extract the full content of `name=decisions` blocks.
+3. Extract `## Session` heading lines and timestamps (for context).
+4. **Skip** `name=detail` and `name=verification` blocks (Tier A+ needs decisions, not full details).
+
+**Fallback path (legacy log without anchors):**
+1. If no `mixia:section:start` markers are found, use the legacy heuristic:
+   - Read `## Session Save` or `## Session` headings.
+   - Read "completed tasks" and "decision records" subsections.
+   - Skip "cognitive candidates", "agent call records", and other low-priority sections.
+
+**Short-file optimization:** If the file is under 50 lines, read the entire file regardless of anchors.
+
+### 6.5 Writing Anchors
+
+The `/save` protocol (Phase 1) is responsible for inserting anchors when writing session logs:
+
+```markdown
+## Session Save | 2026-04-02 14:30 | slot-A
+
+<!-- mixia:section:start name=detail ts=2026-04-02T14:30:00+02:00 -->
+### Completed Tasks
+1. Implemented user authentication endpoint
+2. Added input validation to API routes
+3. Fixed display bug in dashboard component
+<!-- mixia:section:end name=detail ts=2026-04-02T14:30:00+02:00 -->
+
+<!-- mixia:section:start name=decisions ts=2026-04-02T14:30:00+02:00 -->
+### Decisions
+- Chose JWT over session-based auth: stateless, scales horizontally
+- Database: added `last_login` column to users table
+<!-- mixia:section:end name=decisions ts=2026-04-02T14:30:00+02:00 -->
+
+<!-- mixia:section:start name=verification ts=2026-04-02T14:30:00+02:00 -->
+### Verification Events
+- Codex review: accept (confidence 0.85)
+- Browser verification: confirmed UI renders correctly
+<!-- mixia:section:end name=verification ts=2026-04-02T14:30:00+02:00 -->
+```
+
+### 6.6 Backward Compatibility
+
+- Legacy session logs without anchors continue to work via the fallback parsing path.
+- New session logs always include anchors.
+- No migration of historical logs is required — the fallback path handles them indefinitely.
+
+中文摘要：结构化锚点为session log提供确定性解析点，替代脆弱的启发式文本匹配。格式为HTML注释（`mixia:section:start/end`），三个注册区块：decisions（Tier A+必读）、detail（跳过）、verification（跳过）。解析算法优先使用锚点，无锚点时降级为旧格式兼容。新log必须包含锚点，旧log无需迁移。
+
+---
+
+---
+
+### 5.11 Verification Event Persistence
+
+Verification Event Persistence
+
+
+### 7.1 Purpose
+
+Every verification event (review gate decision, deployment confirmation, permission override) should be recorded in a structured format that enables:
+1. **Session-level audit:** What was verified and what was the outcome?
+2. **Cross-session analysis:** How often does Codex review change the plan? How often do users override deployment warnings?
+
+### 7.2 Event Schema
+
+Verification events are recorded as HTML annotations in the session log:
+
+```
+<!-- mixia:data:verification-event gate=[gate-type] verdict=[verdict] confidence=[0.0-1.0] user_action=[action] post_result=[result] ts=[ISO8601] -->
+```
+
+| Field | Values | Description |
+|-------|--------|-------------|
+| `gate` | `codex-review`, `deployment`, `permission-override`, `multi-llm-review` | Which verification gate generated this event |
+| `verdict` | `accept`, `revise`, `reject` | The gate's assessment |
+| `confidence` | `0.0` - `1.0` | Confidence of the verdict (from JSON Output Contract, or AI's self-assessment) |
+| `user_action` | `confirmed`, `rejected`, `modified`, `skipped` | What the user decided after seeing the verdict |
+| `post_result` | `success`, `failure`, `partial`, `pending` | Outcome after execution (filled in post-deployment or post-change) |
+
+### 7.3 Examples
+
+```
+<!-- mixia:data:verification-event gate=codex-review verdict=revise confidence=0.78 user_action=confirmed post_result=success ts=2026-04-02T10:15:00+02:00 -->
+```
+
+*Translation: Codex reviewed a plan and suggested revisions (confidence 0.78). The user confirmed the revised plan. The changes were applied successfully.*
+
+```
+<!-- mixia:data:verification-event gate=deployment verdict=accept confidence=0.95 user_action=confirmed post_result=success ts=2026-04-02T14:30:00+02:00 -->
+```
+
+*Translation: The deployment checklist passed (confidence 0.95). The user confirmed. Deployment succeeded.*
+
+```
+<!-- mixia:data:verification-event gate=permission-override verdict=reject confidence=1.0 user_action=modified post_result=pending ts=2026-04-02T16:00:00+02:00 -->
+```
+
+*Translation: A DENY permission was requested for override. The system rejected it. The user modified the approach instead of forcing the override.*
+
+### 7.4 Queryability
+
+Verification events can be queried across session logs:
+
+```bash
+# Count all Codex reviews that changed the plan
+grep -r "gate=codex-review verdict=revise" sessions/
+
+# Find deployments that failed
+grep -r "gate=deployment.*post_result=failure" sessions/
+
+# Count permission overrides
+grep -r "gate=permission-override" sessions/
+```
+
+中文摘要：验证事件持久化将每次审查门决策（Codex审查、部署确认、权限覆盖）以结构化HTML注释记录在session log中。五个字段：gate（哪个门）、verdict（判定）、confidence（置信度）、user_action（用户行为）、post_result（执行结果）。支持跨session grep查询（如"Codex审查改变了多少次计划"）。
+
+---
+
+---
+
+### 5.12 Speed Mode Quantification
+
+Speed Mode Quantification
+
+
+### 9.1 Trigger Words
+
+Speed mode activates when the user uses any of the following signals (same as Challenge Trigger 6):
+
+```
+"quick" / "urgent" / "rush" / "ASAP" / "before the meeting" /
+"fast" / "hurry" / (equivalent expressions in any language)
+```
+
+### 9.2 Four Reduction Rules (S1-S4)
+
+When speed mode is active, the following reductions apply:
+
+| Rule | Normal Mode | Speed Mode | Savings |
+|------|------------|------------|---------|
+| **S1: No alternatives** | Present 2-3 options with trade-offs | Give the recommended option directly, no alternatives | ~200 tokens |
+| **S2: No inline comments** | Add comments to new code | Skip comments (can be added later) | ~50-100 tokens |
+| **S3: Compressed reasoning** | Conclusion, then detailed rationale | Conclusion + rationale merged into 1-2 sentences | ~150 tokens |
+| **S4: ISB minimal** | Full ISB block with all Tier 2 items | ISB retains only security alerts and deployment gates; all other Tier 2 items silenced | ~100 tokens |
+
+**Estimated total savings:** 500-550 tokens per response.
+
+### 9.3 Red Lines (Never Reduced)
+
+The following are **never** reduced in speed mode, regardless of time pressure:
+
+| Item | Reason |
+|------|--------|
+| Challenge Trigger 3 (financial decisions) | Money errors are expensive and hard to reverse |
+| Challenge Trigger 4 (personnel decisions) | Affects people; cannot be "quick-fixed" |
+| Challenge Trigger 5 (architecture decisions) | Long-term lock-in; hasty choices create tech debt |
+| Challenge Trigger 9 (deployment) | Production impact; cannot be undone quickly |
+| Browser verification reminder | 10-second action that catches visual regressions |
+| CU batch limit enforcement | Prevents quality degradation from overloaded batches |
+
+### 9.4 Speed Mode Marker
+
+Every response generated in speed mode ends with:
+
+```
+--- Speed mode active. This decision is recommended for post-session review. ---
+```
+
+This marker serves as a reminder that the output was deliberately compressed and may benefit from revisiting when time pressure subsides.
+
+中文摘要：速度模式v2.0定义四项裁减规则——S1不列替代方案、S2不加代码注释、S3结论和理由压缩为1-2句、S4仅保留安全和部署ISB提示。每次回复节省约500 tokens。红线不裁减：财务/人事/架构/部署相关Challenge触发、浏览器验证、CU批量限制。每条速度模式回复末尾标注提醒事后review。
+
+---
+
+---
+
+### 5.13 Challenge Output Tiering
+
+Challenge Output Tiering
+
+
+### 10.1 The Problem
+
+The v1.2 Challenge Contract produces a 4-part output (Profile-Aligned Recommendation, Best Counter-Argument, Key Assumption, Reversal Condition) for every challenge trigger. For Trigger 1 (batch overload) or Trigger 7 (optimistic estimate), this level of analysis is excessive. The user just needs a warning, not a philosophical exploration of assumptions.
+
+### 10.2 Tiered Output Format
+
+| Risk Score | Output Format | Applied To |
+|------------|--------------|------------|
+| **0-2 (Low)** | One-line alert | Trigger 1 (batch overload), Trigger 7 (optimistic estimate), Trigger 8 (security — immediate alert, not analysis) |
+| **3 (Medium)** | Two-part output: recommendation + key risk | Trigger 2 (contradiction), Trigger 6 (fatigue) |
+| **>= 4 (High)** | Full 4-part output (same as v1.2) | Trigger 3 (financial), Trigger 4 (personnel), Trigger 5 (architecture), Trigger 9 (deployment) |
+
+### 10.3 Output Templates
+
+**Low Risk (Score 0-2) — One-Line Alert:**
+
+```
+Challenge: [trigger description]. [recommended action in one sentence].
+```
+
+Example:
+```
+Challenge: 6 CU detected in this batch (limit: 5). Recommend splitting into two batches: items 1-3 first, then 4-6.
+```
+
+**Medium Risk (Score 3) — Two-Part Output:**
+
+```
+## Challenge: [trigger category]
+
+### Recommendation
+[What the cognitive profile suggests, 2-3 sentences]
+
+### Key Risk
+[The single most important risk if this recommendation is wrong, 1-2 sentences]
+```
+
+Example:
+```
+## Challenge: Requirement Contradiction
+
+### Recommendation
+The new endpoint conflicts with the API contract established on March 15.
+Recommend updating the contract first, then implementing the new endpoint.
+
+### Key Risk
+If the old contract has undocumented consumers, updating it may break
+integrations you are not aware of.
+```
+
+**High Risk (Score >= 4) — Full 4-Part Output (v1.2 format):**
+
+```
+## Decision Analysis
+
+### 1. Profile-Aligned Recommendation
+[What the cognitive profile suggests as the best course of action]
+
+### 2. Best Counter-Argument
+[The strongest argument against the recommendation]
+
+### 3. Key Assumption
+[Which persona assumption most influenced this answer —
+and how the recommendation changes if that assumption is wrong]
+
+### 4. Reversal Condition
+[What new evidence would cause this recommendation to reverse]
+```
+
+### 10.4 Trigger-to-Tier Mapping
+
+| Trigger | Category | Default Risk Tier | Can Escalate? |
+|---------|----------|------------------|--------------|
+| T1: Batch overload | Operational | Low (0-2) | No — always a simple count-based warning |
+| T2: Requirement contradiction | Design | Medium (3) | Yes — if contradiction affects database schema or API contract, escalate to High |
+| T3: Financial decisions | Business | High (>= 4) | Always High |
+| T4: Personnel decisions | Business | High (>= 4) | Always High |
+| T5: Architecture decisions | Technical | High (>= 4) | Always High |
+| T6: Fatigue/time pressure | Operational | Medium (3) | Yes — if combined with T3/T4/T5, escalate to High |
+| T7: Optimistic estimate | Operational | Low (0-2) | Yes — if actual impact spans 3+ modules, escalate to Medium |
+| T8: Security alert | Security | Low (0-2)* | *Immediate alert, no analysis tier. Escalate to Medium if the leaked credential is production-grade. |
+| T9: Deployment | Infrastructure | High (>= 4) | Always High |
+
+**Escalation rule:** When two triggers fire simultaneously and one is higher-tier, use the higher tier for the combined output.
+
+中文摘要：Challenge输出分级按风险分将输出格式分三级——0-2分一行警告、3分双段（建议+关键风险）、>=4分完整四部分分析（与v1.2相同）。每个Trigger有默认风险层级，部分可升级（如需求矛盾涉及DB schema时从中级升到高级）。两个Trigger同时触发时取较高层级。避免对低风险场景过度分析。
+
+---
+
+## Appendix A: Version History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0 | March 2026 | Initial release. Cognitive Copilot + Multi-LLM Orchestration. |
+| 1.2 | March 2026 | Added Card Format v1.1 (merge_key, aliases, salience). Added dedup scoring. Added parallel session support. |
+| 2.0-draft | April 2026 | 10 new chapters: Deployment Safety, Hook Enforcement, CU Definition, Three-State Permissions, ISB Budget, Structured Anchors, Verification Events, Retrospective Cognitive Collection, Speed Mode Quantification, Challenge Output Tiering. |
+
+## Appendix B: Concept Cross-Reference
+
+| Concept | First Introduced | Document | Section |
+|---------|-----------------|----------|---------|
+| CU (Change Unit) | v2.0 | Multi-LLM | 3 (this draft) |
+| Three-State Permission (ALLOW/PROMPT/DENY) | v2.0 | Multi-LLM | 4 (this draft) |
+| ISB (Interaction Summary Block) | v2.0 | Cognitive Copilot | 5 (this draft) |
+| Structured Anchors | v2.0 | Cognitive Copilot | 6 (this draft) |
+| Verification Event | v2.0 | Multi-LLM | 7 (this draft) |
+| Deployment Safety System | v2.0 | Multi-LLM | 1 (this draft) |
+| Hook-Based Mechanical Enforcement | v2.0 | Multi-LLM | 2 (this draft) |
+| Speed Mode (S1-S4) | v2.0 | Cognitive Copilot | 9 (this draft) |
+| Challenge Output Tiering | v2.0 | Cognitive Copilot | 10 (this draft) |
+| Codex Review Gate | v1.0 | Multi-LLM | 5 (original) |
+| GUAN Card Format v1.1 | v1.2 | Cognitive Copilot | 3 (original) |
+| Trigger Matrix v1.2 | v1.2 | Multi-LLM | 3 (original) |
+| Challenge Contract Protocol | v1.0 | Cognitive Copilot | 7 (original) |
+| Scaffold-Substitute Test | v1.0 | Cognitive Copilot | 8 (original) |
+
+---
+
+*This document is part of the GUAN Framework, licensed under CC BY-NC-SA 4.0. Attribution to GUAN as the original author is required. Commercial use is prohibited. Derivative works must use the same license.*
 
 ---
 
