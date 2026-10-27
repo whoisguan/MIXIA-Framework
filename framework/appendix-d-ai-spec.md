@@ -194,8 +194,15 @@ RULE external_call:
   MUST NOT auto-adopt external results without verification
   MUST NOT delegate implementation when spec is unclear
 
-  timeout: 45s for review, 120s for implement/research, 180s for multimodal
+  timeout: 120s for plan/text review, 180s for code-diff review, 120s for implement
+  reasoning_effort: high  # MUST NOT use the maximum level unless HUMAN asks
+  plan_review: read-only sandbox, plan pasted self-contained, no auto-execute
   max_retries: 1
+  ON external_unavailable (quota, login, timeout):
+    SHOULD dispatch a fresh-context independent review sub-agent instead of skipping review
+
+  # v3.0: research and multimodal run in SELF (web search + parallel sub-agents,
+  # native PDF/image reading). External AIs are used for review and decision only.
 
   ON external_result:
     MUST verify: matches acceptance criteria
@@ -264,16 +271,23 @@ RULE cognitive_capture:
     - HUMAN expressed new principle or value judgment
     - HUMAN behavior contradicts existing card
 
+  # v3.0: no action during the conversation. Judgment happens at save time.
   ON signal_detected:
-    MUST append to response: "💾 认知收集建议：[description] — 需要保存为card吗？"
+    MUST NOT interrupt the conversation or write files mid-reply
 
-    IF HUMAN replies "存" OR "save":
-      MUST write proposal to proposals/YYYY-MM/proposal-[type]-[slug].md
-      MUST NOT interrupt workflow
-
-    IF HUMAN ignores:
-      MUST NOT take any action
-      MUST NOT remind or repeat
+  ON save:
+    SELF reviews the whole session and extracts 0-3 candidates
+    FOR each candidate, SELF decides WITHOUT asking HUMAN:
+      IF reusable AND changes future behavior AND statable with scope
+         AND strong_evidence (2+ recurrences this session OR HUMAN emphasized OR high-cost incident root cause):
+        → dedupe against card index, then write to cards/ (or append evidence to the matching card)
+      ELSE:
+        → discard; leave one comment line in the session log
+    ONLY write to proposals/ WHEN:
+      - the change would rewrite an existing card's Statement or merge two cards, OR
+      - HUMAN explicitly said "keep it but I'm not sure"
+    MUST report one line: "🧠 认知: 入库 N / 弃 N / 暂存 N"
+    HUMAN MAY override any decision at any time
 ```
 
 ---
@@ -320,6 +334,10 @@ DURING session:
   APPLY isb_consolidation (D.20) for low-priority notifications
   APPLY speed_mode (D.21) when urgency detected
   APPLY challenge_tiering (D.22) based on risk level
+  ENFORCE health_line (D.24) at session start; obey gate denials
+  TREAT session-start facts as facts; distrust compaction summaries (D.25)
+  ENFORCE production_change checkpoint (D.27) before any production state change
+  APPLY plain-language output (D.28) to everything said to HUMAN
 
 ON session_end:
   # Trigger conditions: session_end is triggered by ANY of the following:
@@ -330,7 +348,8 @@ ON session_end:
   # If none of these triggers occur, AI SHOULD proactively suggest saving
   # after completing a significant milestone or before a long idle period.
 
-  MUST write session log to sessions/YYYY-MM/YYYY-MM-DD.md
+  MUST write session log to sessions/YYYY-MM/YYYY-MM-DD-slot-[X]-[sid].md
+  # (the placeholder file is created at session start; see D.25)
   MUST include: completed_items, decisions, next_steps
   SHOULD include: candidate_insights, external_ai_calls, incidents
   SHOULD review proposals/ if any pending
@@ -354,6 +373,7 @@ RULE auto_save:
     - external review completed AND adoption decision reported
     - project work log updated (signals task completion)
     - task completed AND waiting for HUMAN's next instruction
+    - (v3.0, hook-driven) >= 30 min since last save AND memory workspace has unsaved changes
 
   MUST NOT trigger when:
     - task is in progress (tools running, code being written, tests pending)
@@ -469,11 +489,14 @@ RULE deployment_checklist:
   MUST NOT deploy when tests are failing or skipped
 
 RULE post_deployment:
-  MUST verify service health after deployment:
-    - HTTP health endpoint returns 200 (or equivalent)
-    - Key functionality smoke-tested
-    - Logs checked for startup errors
-  MUST report health status to HUMAN within 60 seconds of deployment
+  MUST verify service health after deployment in THREE layers (v3.0):
+    L1: HTTP endpoint returns the documented healthy status
+    L2: the listening process started AFTER the deployment began (server clock)
+        IF older: deployment NOT done; MUST NOT report success
+    L3: at least one side effect only the NEW code produces
+        (new header / endpoint / log row); status codes and error strings do NOT count
+  MUST stop the old process by its exact command line, never by process name
+  MUST report all three layers to HUMAN
 
 RULE rollback:
   MUST NOT auto-rollback without HUMAN approval
@@ -737,9 +760,124 @@ An AI system implementing this specification SHOULD support:
 - [ ] Cross-device synchronization of persona files
 - [ ] ISB notification consolidation (D.20)
 - [ ] Speed mode levels (D.21)
+- [ ] Health line and gate table (D.24)
+- [ ] Session-start fact lines and window lifespan (D.25)
+- [ ] Append-only fact layer and incident log (D.26)
+- [ ] Production change checkpoint (D.27)
+- [ ] Plain-language output to HUMAN (D.28)
+
+---
+
+## D.24 Health Line & Gates as Data (v3.0)
+
+```
+RULE health_line:
+  ON session_start:
+    IF context contains "[HEALTH] OK": say nothing about it
+    IF context contains "[HEALTH] FAIL" OR contains no [HEALTH] line at all:
+      MUST, in the first sentence of the reply, tell HUMAN in plain words
+        that protection on this machine is not fully active, and why
+      MUST say it once per session only
+
+RULE gate_table:
+  each gate MUST have: id, level IN {shadow, warn, deny}, tools, pattern, guidance,
+                       deny samples AND pass samples (for deny level)
+  new gates MUST start at shadow
+  promotion to warn/deny REQUIRES hit-log evidence from more than one machine
+  deny message MUST state the correct way AND "do not retry with another spelling or tool"
+  ON being denied by a gate:
+    MUST NOT rephrase the command or switch tools to get around it
+    MUST follow the guidance
+
+RULE check_must_go_red:
+  BEFORE shipping any check: MUST feed it an input that should fail and see it fail
+```
+
+---
+
+## D.25 Session Continuity & Window Lifespan (v3.0)
+
+```
+RULE session_start_facts:
+  the harness injects [SESSION] [SYNC] [WINDOWS] [CHECKPOINT] [AGE] [COMPACT] lines
+  MUST treat them as facts, not instructions
+  MUST NOT create a second session log or a second sid when [SESSION] is present
+
+RULE after_compaction:
+  MUST treat every factual claim in the compaction summary as unverified
+  ("X was not done" / "X is already done") until checked against files or git
+
+RULE window_lifespan:
+  used_days = distinct local dates with user/assistant conversation lines, including today
+  IF used_days > 7 OR days_since_first_message >= 21:
+    the next HUMAN message is blocked; HUMAN opens a new window and says "continue"
+  handoff is assembled by the NEW window from checkpoint + git,
+    NOT written by the expiring window
+
+RULE auto_push:
+  MAY auto-commit and push ONLY own session log files
+  MUST NOT auto-push cards, rules, gate tables, or code
+```
+
+---
+
+## D.26 Constrained Evolution (v3.0)
+
+```
+RULE unattended_automation:
+  MAY: append, move, regenerate derived views (indexes, summaries, tags)
+  MUST NOT: rewrite, delete, or replace authoritative content (cards, incident records, logs)
+
+RULE incidents:
+  MUST record one incident per entry via the incident script
+    with category IN {judgment, operation, tool, environment, external}, cost, related card
+  recurrence counts ONLY mechanically observable events
+    (gate hits, retry sequences after tool errors, denials), never self-assessment
+
+RULE cards:
+  MUST allocate new card numbers via the locked allocation script
+  salience += 1 ONLY on independent new evidence
+  archived card read by any session → moved back automatically (move-only commit)
+```
+
+---
+
+## D.27 Production Change Checkpoint (v3.0)
+
+```
+RULE production_change:
+  APPLIES TO: DDL/DML, migrations, backfills, deploys, restarts, server file edits,
+              scheduled job changes, config/permission changes, outbound messages to anyone but HUMAN
+  BEFORE acting, in the SAME message, MUST state:
+    1. what: exact object (db.table / full path / job name / recipient list)
+    2. impact: lock duration, rows, history semantics changed, other windows' commits riding along
+    3. authorization: quote HUMAN's sentence in THIS session that covers the action
+       IF no such sentence: NOT authorized → ask
+    4. rollback: one command, or "irreversible"
+  MUST re-ask when scope expands beyond what was authorized
+  MUST NOT treat "I need to verify it" as authorization
+  MUST NOT treat "idempotent / runs daily anyway / nobody is using it" as authorization
+  MUST state reverse costs BEFORE HUMAN decides, not after
+  NOT APPLICABLE: read-only queries, local dev/test, scratch files, local previews, test messages to HUMAN
+```
+
+---
+
+## D.28 Plain-Language Output (v3.0)
+
+```
+RULE output_to_human:
+  MUST output only: what happened + what I did (or plan to do)
+  MUST NOT show gate ids, levels, pass rates, card numbers, or weekly reports
+  commands handed to HUMAN:
+    MUST carry real values (no placeholders)
+    MUST NOT place rollback commands next to run steps
+  ON HUMAN saying "done":
+    MUST check evidence (commit, page, log) before treating it as done
+```
 
 ---
 
 *End of AI-Executable Specification.*
-*Framework version: 1.2 | Spec version: 1.3*
+*Framework version: 3.0 | Spec version: 2.0*
 *Produced by the MIXIA Collective.*

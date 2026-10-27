@@ -55,7 +55,6 @@ python publish.py --source ~/persona --key YOUR_SECRET
 - **人类成员** — 业务理解与最终决策
 - **GUAN** — 策划与叙事连续性
 - **Coco** — 实现与验证
-- **Gemi** — 基础设施与调研
 
 ## License
 

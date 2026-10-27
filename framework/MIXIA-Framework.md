@@ -1,4 +1,4 @@
-# 鸣弦/MIXIA 团队模型框架 v2.0
+# 鸣弦/MIXIA 团队模型框架 v3.0
 
 ## 人与AI协作的团队操作系统
 
@@ -23,6 +23,12 @@
   - [5.11 验证事件持久化](#511-verification-event-persistence)
   - [5.12 速度模式](#512-speed-mode-quantification)
   - [5.13 Challenge输出分级](#513-challenge-output-tiering)
+  - [5.14 机械层：插件 + 健康行 (v3.0)](#514-机械层可安装的插件--健康行-v30)
+  - [5.15 开场自动接续与窗口寿命 (v3.0)](#515-开场自动接续与窗口寿命-v30)
+  - [5.16 受限进化 (v3.0)](#516-受限进化让记忆库变好但不冒丢信息的险-v30)
+  - [5.17 生产变更检查点 (v3.0)](#517-生产变更检查点-v30)
+  - [5.18 活交接文档 (v3.0)](#518-活交接文档-v30)
+  - [5.19 对人类说话的口径 (v3.0)](#519-对人类说话的口径-v30)
 - [6. 治理与演化](#6-治理与演化-governance)
 - [致谢](#致谢)
 - [附录](#附录)
@@ -73,7 +79,7 @@
 │   共享记忆 / 私有记忆 / 会话日志  │
 ├─────────────────────────────────┤
 │   Model Adapter Layer (适配层)   │
-│   Claude / GPT / Gemini / ...   │
+│   Claude / GPT / ...            │
 └─────────────────────────────────┘
 ```
 
@@ -218,7 +224,8 @@ Session Start
     │
     ▼
 [6] Agent 健康检查 → 检测外部AI可用性
-    → 确定可用编排模式（单模型 / +审查 / +调研 / 全三方）
+    → 确定可用编排模式（单模型 / +外部审查）
+    → 只检查命令是否存在，不为"测一下"去真调用（会消耗共享额度）
     │
     ▼
 [7] 检查跨设备变更（如有远程 inbox）
@@ -226,6 +233,8 @@ Session Start
     ▼
 [8] Ready — 身份恢复完成，开始工作
 ```
+
+**v3.0：Boot 的机械部分已交给开场钩子。** 第 [3]、[4]、[5.5]、[7] 步（分配 slot/sid、建占位日志、拉取最新记忆库、汇总其他窗口近况与最近一次收尾）现在由 SessionStart 钩子在每个窗口开场时自动完成，以事实行的形式注入上下文——不再依赖有人记得输入 `/boot`。`/boot` 只剩"读 core/ + 接上文 + 报告"。详见 [5.15](#515-开场自动接续与窗口寿命-v30)。
 
 **Boot 的本质：** 不是"配置AI"，而是"唤醒成员"。区别在于——配置是一次性的参数设置；唤醒是每次启动时重新加载完整身份，让AI从"一个通用模型"变成"你认识的那个队友"。
 
@@ -294,26 +303,34 @@ merge_key: unique-slug      # 用于防重复
 - 从错误中学到了教训
 - 表达了一个新的原则或价值判断
 
-**流程：**
+**流程（v3.0 修订）：**
 
 ```
-AI检测到认知信号
-    → 在回复末尾提示："建议保存为卡片——[简述]"
-    → 人类回复"存" → 写入 proposals/ 待审核
-    → 人类忽略 → 不做任何操作
-    → 下次 session save 时统一审核 proposals/
+对话中：不打断、不写任何东西
+    ↓
+Save 时：AI 回顾本 session，提炼 0-3 条候选认知
+    ↓
+AI 自主判断（不询问人类），用下方 4 条过滤：
+    → 够格 → 直接去重后入库 cards/（或给旧卡追加证据）
+    → 不够格 → 弃，只在 session log 留一行注释
+    → 例外才进 proposals/：① 要改一张已有卡的 Statement 或合并两张卡（高风险，等人类审）
+                          ② 人类主动说"先存着，还不确定"
+    ↓
+Save 报告里一行简报：入库 N / 弃 N / 暂存 N
 ```
+
+**为什么从"提示人类 → 存 proposals/"改成"AI 自主判断"：** 旧流程有两个实证问题。一是"对话中实时捕获"从未真正发生过——让模型在回复中途插写文件不可靠，产出为 0；二是"够格但不太确定就先放 proposals/"让暂存区变成了无人清理的蓄水池（积压了数百条，入库率只有约 5%）。现在 proposals/ 只承载上面两类例外，应保持在个位数/月；如果又涨到几十条，说明有路径把"不确定"默认灌了进去。人类随时可以说"把 X 入库"或"这条不该存"覆盖 AI 的判断。
 
 **质量过滤（4条必须同时满足）：**
 
 1. 这是可复用的规则/模式/盲区，而不是一次性事件
 2. 它会改变未来的判断或操作
 3. 它能写成清晰的 statement，并能说明适用/不适用场景
-4. 它有证据锚点（重复出现或高代价事件）
+4. 它有**强**证据锚点（三选一）：本 session 内复现 2 次以上 / 人类明确强调过 / 高代价事故的根因（半天以上返工或线上事故）
 
-**硬性不存：** 任务状态、单次 bug 修复、TODO/下一步、纯偏好表达、单文件技巧
+**硬性不存：** 任务状态、单次 bug 修复、TODO/下一步、纯偏好表达、单文件技巧、已在 cards 中存在的认知
 
-**核心原则：** 捕获要低摩擦（随时随地），审核要高质量（集中在有完整上下文的环境）。
+**核心原则：** 判断要在有完整上下文的时刻做（Save 时回顾整个 session），而不是在对话中途打断。
 
 ---
 
@@ -448,12 +465,13 @@ handoff:
 
 | 模型特长 | 适合的任务 | 典型模型 |
 |---------|-----------|---------|
-| 深度推理 | 架构设计、复杂分析、哲学思考 | Claude Opus, GPT-4o |
-| 指令跟随 | 精确编码、结构化输出、代码审查 | GPT系列, Claude Sonnet |
-| 长上下文 | 文档分析、技术调研、代码库理解 | Gemini Pro |
-| 快速响应 | 批量处理、简单任务、格式转换 | Claude Haiku, Gemini Flash |
+| 深度推理 | 架构设计、复杂分析、哲学思考 | Claude Opus 等深度推理模型 |
+| 指令跟随 | 精确编码、结构化输出、代码审查 | GPT/Codex 系列、Claude Sonnet |
+| 快速响应 | 批量处理、简单任务、格式转换 | Claude Haiku 等轻量模型 |
 
 鸣弦模型的核心洞察：**同一个AI成员可以在不同模型上运行（身份解耦），同时团队可以调用多个模型运行不同任务（多模型编排）。**
+
+**v3.0 调整——外部模型只留在"第二双眼睛"的位置：** 早期版本把调研和多模态（PDF/截图/报表）交给一个长上下文的外部模型。实践中主AI自己就能做好这两件事——联网检索 + 多个子代理并行扇出、互相对抗验证；原生按页读 PDF 和图片——而多维护一个外部模型的登录、额度和失败处理，成本高于收益。因此 v3.0 起，外部模型只承担**审查**和**重大决策的第二意见**；调研和多模态由主AI自跑。外部审查不可用时（额度、登录、超时），改派一个上下文干净的**独立审查子代理**兜底，而不是跳过审查。
 
 ### 4.2 任务风险评分
 
@@ -485,8 +503,8 @@ handoff:
 |------|------|------|---------|
 | **Review** | 审查 | 主AI完成 → 外部审查 → 综合判断 | 代码改动、方案评估 |
 | **Implement** | 委派 | 主AI出spec → 外部实现 → 主AI验证 | 边界清晰的小任务 |
-| **Research** | 调研 | 主AI提问题 → 外部调研 → 主AI整合 | 技术选型、最新信息 |
-| **Multimodal** | 分析 | 传入文件 → 外部分析 → 主AI采纳 | PDF/截图/报表 |
+| **Research** | 调研 | 主AI拆问题 → 多个子代理并行检索、互相对抗验证 → 主AI整合（v3.0 起主AI自跑） | 技术选型、最新信息 |
+| **Multimodal** | 分析 | 主AI原生读 PDF/图片（v3.0 起主AI自跑） | PDF/截图/报表 |
 | **Decision** | 决策 | 各AI独立出方案 → 交换评审 → 人类裁决 | 重大不可逆决策 |
 
 **Decision 模式细节：**
@@ -504,13 +522,19 @@ handoff:
 
 | 失败类型 | 处理方式 |
 |---------|---------|
-| 外部AI超时（>45秒） | 告知人类，主AI独立完成 |
+| 外部AI超时（计划/文本审查 120 秒，代码 diff 审查 180 秒） | 告知人类，改派独立审查子代理或主AI自审兜底 |
 | 外部AI返回无意义内容 | 忽略，标记"不可用"，主AI继续 |
 | 外部AI返回非结构化结果 | 按自由文本处理，标记"仅供参考" |
 | 主AI与外部AI结论冲突 | 升级为 Decision 模式 |
 | 所有外部AI不可用 | 降级为主AI独立执行 + 人类加强审查 |
 
 **最多重试1次。** 超过1次仍失败，切换策略而非死循环。
+
+**审查调用的三条经验（v3.0）：**
+
+- **推理档位用"高"，不用"最高"。** 最高档会先满仓库翻找依据，时间全耗在找依据上，常常在给出结论前就超时；"高"档约一分钟返回，且能抓到真问题。最高档只在人类明确要求时使用。
+- **审计划时只读、自包含。** 把计划和相关代码片段直接粘进提示，以只读沙箱运行，不给"自动执行"权限——否则外部模型会自己去跑测试、翻仓库，烧掉额度又超时。提示过长（约 7k 字以上）同样会拖垮返回时间，只发技术部分。
+- **审查结论是附加信号，不是必经之路。** 外部审查的"修改:通过"比例偏高，也有过一次审查烧光共享额度导致线上功能停摆。它不进入任何无人值守的自动流程。
 
 ### 4.5 禁止项 (MUST NOT)
 
@@ -701,6 +725,9 @@ mkdir -p persona/indexes
 3. **外部审查完成** — 审查结论已报告给人类
 4. **工作日志更新** — 写完项目的工作日志意味着一个完整任务结束
 5. **任务完成等待中** — 任务已完成，正在等待人类下一步指令
+6. **30 分钟心跳（v3.0）** — 距上次 save 超过 30 分钟，且记忆库工作区有未保存改动。由 Stop 钩子机械判断：每轮结束时检查，满足就拦下本轮结束、要求 AI 当场 save。这是安全网——窗口在 save 前崩溃时，最坏只丢 30 分钟
+
+> 前 5 条靠 AI 自觉，第 6 条靠钩子。只有前 5 条时，"auto-save 已实装"的说法曾在一台机器上落空了几个月没人发现（钩子从未接线）。所以心跳是否真的在跑，看开场健康行（见 5.14），不看文档怎么写。
 
 **不触发：** 任务进行中、刚收到新指令、距上次 auto-save 不到10分钟、纯讨论无产出。
 
@@ -854,6 +881,16 @@ curl -s -o /dev/null -w "%{http_code}" [health-url]
 - **Expected responses must be documented.** For example, a 401 response from an auth-protected endpoint means the service is running (authentication is active).
 - **Failure:** Output the rollback command. Do not auto-execute the rollback — wait for the user to decide.
 
+**v3.0: one HTTP check is not enough — verify in three layers.** An observed failure: every health check returned the expected status, yet the server was still running *yesterday's* process; the "restart" command was a no-op for a task that was already running. HTTP status only proves *something* is listening.
+
+| Layer | What it proves | How |
+|---|---|---|
+| **L1 HTTP** | A process answers on the port | `curl` status code (document what "healthy" looks like, e.g. 401) |
+| **L2 Process identity** | The listening process is **new** | Find the PID listening on the port; its start time must be **later than the deployment start** (compare on the server's own clock). Older → deployment not done, never report success |
+| **L3 New-code side effect** | The new process runs the **new code** | Observe at least one effect only the new code produces: a new response header, a new endpoint, a new log/audit row. Status codes, error strings, or response shapes that are identical in old and new code do not count |
+
+Report all three, e.g. `L1 401 ✓ · L2 PID 4821 started 14:32 > deploy 14:30 ✓ · L3 new header X-Build present ✓`. If any layer fails, output the rollback command and stop. Two related lessons: when stopping the old process, select it **by its exact command line**, never by process name (other services written in the same language share the host and were killed this way); and copy files to the server through a remoting session rather than a network-share path, whose client-side cache can show files that are not yet on the server's disk.
+
 ### 1.8 Concurrent Deployment Lock
 
 To prevent two parallel sessions from deploying to the same server simultaneously:
@@ -930,7 +967,7 @@ Execute **after** a tool call completes. Cannot block (the action already happen
 
 | Hook | Trigger | Purpose |
 |------|---------|---------|
-| `track-agent-call` | Any `Bash` command containing `codex` or `gemini` | Records external agent invocations to a daily log file for `/save`-time reconciliation |
+| `track-agent-call` | Any `Bash` command invoking an external agent CLI (e.g. `codex`) | Records external agent invocations to a daily log file for `/save`-time reconciliation |
 
 ### 2.3 Design Principles
 
@@ -951,9 +988,14 @@ Examples:
 
 Each hook enforces exactly one rule. Hooks do not contain business logic or make judgment calls. They pattern-match and gate/log.
 
-**Principle 3: Hooks degrade gracefully.**
+**Principle 3: Choose each hook's failure direction on purpose.** *(revised in v3.0)*
 
-If a hook script fails to execute (e.g., script not found, permission error), the tool call proceeds. Hooks are safety nets, not hard gates — a broken safety net should not prevent all work.
+The v2.0 rule was "hooks degrade gracefully — if a hook fails, the call proceeds." In practice that produced silent holes: a hook that was never wired, or that crashed on every call, looked exactly like a hook that never fired, and nobody noticed for months. v3.0 splits the decision:
+
+- **Gate engine (PreToolUse blocking gates): fail closed.** The wiring command is `<engine> || exit 2` — if the engine cannot run cleanly, the call is refused with a recovery instruction. To keep a single typo from locking every window out (including the command that would fix it), the engine falls back to the **last gate table that passed self-test**.
+- **Advisory hooks (reminders, logging, session context, age limits): fail open.** A crash in these must never block work; instead their absence is caught by the independent health line (see 5.14).
+
+**Principle 4: A check must prove it can go red before it ships.** *(new in v3.0)* Feed it an input that should fail and confirm it fails. Every gate carries both `deny` and `pass` samples; the test suite also mutates the engine on purpose and confirms the tests turn red. A liveness signal must never be emitted by the thing it monitors.
 
 ### 2.4 Hook Configuration Format
 
@@ -1227,7 +1269,7 @@ When 2 or more Tier 2 notifications are pending at the end of a response, they a
 ```
 ---
 Session Notes:
-- Multi-LLM: [task description] can optionally use [Codex/Gemini] review (reply "go" to invoke)
+- Multi-LLM: [task description] can optionally use [Codex] review (reply "go" to invoke)
 - Browser verification: [what changed] — recommend refreshing to confirm
 - Speed mode: this decision is recommended for post-session review
 ```
@@ -1569,6 +1611,151 @@ and how the recommendation changes if that assumption is wrong]
 
 ---
 
+### 5.14 机械层：可安装的插件 + 健康行 (v3.0)
+
+v2.0 把高代价规则交给了钩子（5.6），但半年下来暴露了三个更底层的问题：**规则和钩子在每台机器上各有一份副本，彼此漂移；钩子没接线却没人发现（有一条"已实装"的钩子在一台机器上空转了几个月）；权威源自己也会过期。** 继续加规则只会把过期内容同步得更整齐。v3.0 先修地基。
+
+**记忆库是唯一来源，副本消失而不是被同步：**
+
+- 规则、技能：用户级目录改成指向记忆库检出目录的**目录链接**。
+- 钩子接线、闸门引擎、自检：打包成一个**本地目录型插件**，指向记忆库检出目录、原地加载。于是 `git pull` 记忆库 = 所有钩子升级，不需要任何同步步骤。
+- 机器差异（路径、主机名）放在本机一个不进 git 的小文件里。
+- 每台机器只跑一次安装脚本（可 `--verify` 只检查、`--uninstall` 撤销；被替换的东西移到备份目录，不删除）。
+
+**健康行——独立的存活信号：** 每个窗口开场，自检脚本把闸门表里每条闸门的"该拒/该放"样例，喂给**真实的接线命令**（不是直接调引擎——接线写错和引擎写错一样致命），然后往上下文里放一行：
+
+```
+[HEALTH] OK · 闸门自检 51/51 · vault a819b8c · <机器名>
+[HEALTH] FAIL · … 问题: <一句话原因>
+```
+
+常驻规则里只保留一条与之配套：**上下文里没有这一行时，第一句话告诉人类"这台电脑上的保护没有完全生效"，并给出修复命令。** 规则和插件走两条互不依赖的加载路径，所以由规则兜"插件根本没加载"这一种情况——沉默不等于正常。
+
+**闸门是数据，不是代码：** 每条闸门是闸门表里的一条记录：`id / level / tools / 匹配模式 / guidance / 正反样例`。
+
+| 级别 | 行为 | 怎么到这一级 |
+|---|---|---|
+| `shadow` | 只记录命中，不干预 | 新闸门一律从这里开始 |
+| `warn` | 放行，但把提醒注入上下文 | 有命中日志支持 |
+| `deny` | 拒绝，并说明正确做法 | 至少两台机器都有命中数据，且命中里确实出错的比例达标；不以"没人投诉"作为升级依据 |
+
+拒绝文案的硬要求：**写清正确做法，并明说"不要换写法或换工具重试"。** 实测中三次真实拒绝里有两次模型换工具绕行，其中一次的绕行脚本把一个文件写坏了。
+
+引擎实现时逐条踩过的坑：匹配器要同时覆盖 Bash 和 PowerShell（只写 Bash，同一条命令换 PowerShell 就直接通过）；匹配前先剥掉引号内字符串和提交说明（否则提交说明里写了"git add -A"也会被拦）；**放行时不输出任何决定**（返回 allow 会跳过宿主自己的安全分类器）；stdout 只输出 JSON；中文按 UTF-8 字节显式写出。
+
+**回放否定、明确不做的闸：** 闸门上线前先拿本机两千多次真实工具调用回放一遍。被回放否定的例子：
+- "内联脚本含反斜杠"——命中占全部 shell 调用的两成，精确率约 6%；
+- 生产主机高危动词黑名单——既漏（`reload`）又误（awk 里的 `>`），真实变更多是多步混合脚本；
+- 按生产 IP/域名字符串触发——大多数真实变更命令的命令行里根本没有 IP。
+
+判断类的错误，闸门拦不住；规则写不干净的，不做成闸门。
+
+**写后自动修正（不拦截）：** 有些错误不必拦，写完由钩子补救即可。例：向 `.ps1` 写入含非 ASCII 的内容后自动补 UTF-8 BOM（Windows PowerShell 5.1 把无 BOM 文件按本地编码读，中文会被截断成语法错误）。
+
+### 5.15 开场自动接续与窗口寿命 (v3.0)
+
+"记忆丢失"的实际病因是：状态活在上下文里；跨窗口、跨机器不同步；窗口一开几十天；压缩摘要把错的当事实。v3.0 把接续做成机械的。
+
+**开场事实行（SessionStart 钩子输出，全部是事实，不是指令）：**
+
+| 行 | 内容 |
+|---|---|
+| `[HEALTH]` | 保护是否生效（见 5.14） |
+| `[SESSION]` | 本窗口的 slot / sid / 日志文件。占位日志已建好，别的窗口立刻能看见你 |
+| `[SYNC]` | 记忆库和当前仓库与远端的差距；记忆库落后且干净时已自动快进 |
+| `[WINDOWS]` | 最近 36 小时活动过的其他窗口，各一行：在做什么、下一步。**按 git 提交时间判断，不按文件修改时间**——刚 clone 的机器上所有文件的修改时间都是"刚才" |
+| `[CHECKPOINT]` | 最近一次收尾的决策与下一步，以及与当前目录相关的较早一次 |
+| `[AGE]` | 窗口快到期 / 已到期时出现 |
+| `[COMPACT]` | 刚被压缩时出现："摘要里的'没有 X / 已经做了 X'一律未核实，以文件为准" |
+
+**只自动推送会话日志：** 每轮结束时，钩子提交本窗口自己的会话日志；如果本地领先远端的提交**全部**只动了 `sessions/`，就推送（远端有新提交时先变基）。会话日志是追加型、文件名带 sid 的单写者文件，不会冲突。卡片、规则、闸门表永远不自动推送。这一条治的是"一台机器改了没推，另一台在过期状态上干活"。
+
+**压缩防护：** 压缩后固定注入"摘要中的事实一律未核实，用前回源"；每次的压缩摘要另存一份，事后可查它丢了什么。
+
+**窗口寿命：** 活了很久的窗口带着过期的认知继续干活，是"记忆丢失"类事故的主要来源之一；压缩摘要出错也只发生在长窗口里。所以窗口有寿命：
+
+- **按"用过的日子"算，不按日历。** 有对话的本地日期（含今天）超过 **7 个**，换到第 8 个日子的第一条消息会被挡下。开着放着、没说话的日子不算；宿主重新打开窗口时自己写的记录（附件、队列、链接行）也不算——只认用户和AI的对话行。v3.0 初版按"日历满 7 天"算，结果开了只说几句、放了一周的窗口也被迫重开。
+- **日历兜底 21 天：** 离第一条对话满 21 天也到期——放了三周的窗口记得的状态多半已过期。
+- 第 6 个使用日或日历满 20 天时，开场给出提醒。
+- 年龄以对话记录里的时间戳算，不用文件创建时间（分叉会重置它）；分叉出来的窗口继承原窗口的年龄。
+- 拦截放在"用户提交消息"这一步（结束时的钩子拦不住用户继续发消息）。消息里带约定的逃生口令可以放行一条，并记录。
+- **交接由新窗口组装，不由快到期的旧窗口现写**：新窗口开场自动带上 `[CHECKPOINT]` 和 git 记录，人只需在新窗口说"继续"。
+- 实现提示：对话记录可达几百 MB，计数要用增量缓存（只读新写入的部分，文件被替换时重扫）；首次扫描设时间预算，扫不完先放行——少算日子只会少挡人，不会多挡人。
+
+**心跳存档：** 见 5.3 第 6 条。
+
+### 5.16 受限进化：让记忆库变好，但不冒丢信息的险 (v3.0)
+
+体检发现记忆库"只增不减、只写不读"：约三分之二的卡片写完后再没被引用过；没有任何机制让系统从自己的错误里变好。但"让 AI 自动整理记忆"的每一种做法——合并、拆分、分类、归档——在原型实验里都没法靠检验变安全：分类的三方一致率只有 55%，语义保全检验漏掉的恰恰是"适用条件被悄悄放宽"。v3.0 的折中：
+
+**两层数据：**
+- **事实层，只追加、不改写：** 卡片原文、事故原始记录、闸门命中日志。
+- **派生层，可随时重新生成：** 索引、汇总视图、分类标签、候选清单。派生层出错的最坏结果是"视图不好"，不是"知识丢了"。
+
+**无人值守的自动化只允许做"不可能丢信息"的操作：** 追加、移动、生成派生视图。不改写、不删除、不替换权威内容。
+
+**燃料要干净：**
+- **事故一事一条**，由脚本写入一个只追加的日志（类别：判断错误 / 操作错误 / 工具坑 / 环境 / 外部；代价；关联卡片）。原来写在会话日志里的自由文本，四分之一以上用分号把几件事串成一条，类别标签为零，没法统计。
+- **"复发"只认机械可观察的事件：** 闸门命中、工具报错后对同一文件/命令的重试序列、被拒记录。不采信模型自评，不用检索分数猜"是不是同一个错"——自动匹配的首位正确率只有 58%。宁可漏并，不要错并。
+- **卡片被读就留痕**（哪张卡、哪个会话）——这是"这张卡有没有用"的分母。
+- **归档 = 移动目录**，内容不改、仍可检索；被任何会话读到一次就自动移回原处（一个只含移动的提交）。
+
+**卡片编号由带锁的脚本分配。** 多个窗口同时"取同目录最大编号 +1"，三次撞出了同号卡片。
+
+**salience 通胀的修正：** 原规则"每次更新 salience +1、只升不降"让高分卡失去了选择性（近一半卡片 ≥7）。现在：只有**独立的新证据**（不同会话、不同根因、人类再次强调）才 +1；开场热点提示的门槛从 ≥8 提到 ≥9，且每个领域最多 3 张；健康检查对 60 天没有新证据的高分卡建议 -1（只建议，人类确认）。
+
+**说实话——判断失误不是记忆问题。** 事故里判断失误约占三成，高代价事故里占大多数，共同形态是"把没验证的信念当事实，然后行动或上报"。这类问题记忆系统只能压住一部分，靠的是别的手段：汇总/统计脚本的输出必须带"应查 / 实查 / 失败"三个计数；"以为是只读"靠凭据层兜底（日常使用的生产数据库账号默认只读）；部署类脚本执行前由钩子跑一个固定的预检。
+
+**明确不做：** 按用户消息做关键词召回（回测正确率 3–5%）；向量库、知识图谱；给全部卡片加靠人维护的新字段；周报；让快到期的窗口自己写交接。
+
+### 5.17 生产变更检查点 (v3.0)
+
+**起因：** AI 为了验证一处新接线，擅自启动了一次生产数据作业（持排他锁几分钟、重建上千万行），理由是"幂等、一天本来就跑几次、那个时段没别的任务"。事后审查的结论是：**它把验证当成了许可。**
+
+**触发：** 任何会改变生产状态的操作——DDL/DML、迁移、回填；部署、重启、改服务器文件；启动或修改定时作业；改配置、权限、目标值；对人类成员本人以外的任何人发邮件或消息。
+
+**执行前，在同一条消息里摆出四件事，然后才动手：**
+
+1. **改什么**——具体对象：`库.表` / 文件全路径 / 作业名 / 收件人清单。不写"更新配置"这种话。
+2. **影响范围**——锁多久、多少行、哪些历史数据的口径会变、会不会连带上线别的窗口的提交。
+3. **授权依据**——引用人类在**本会话**里的哪一句话覆盖了这个动作。找不到那句话 = 没有授权。
+4. **回滚**——一条命令级别的撤销方式；不可逆的要明说"不可逆"。
+
+**范围扩大 = 重新问：** 授权"建那张表"不等于授权改两个已有的定时作业；授权"推上线"不等于授权连带上线别的窗口推的提交。
+
+**两条硬判据：** ① "验证"不是授权——为确认某件事而触发的生产动作，和其他生产动作一样要先问。② "幂等 / 反正每天都跑 / 现在没人用"是风险评估，不是许可——风险低只说明后果小，不说明可以不问。
+
+**后果要在拍板前说。** 如果一个改动有反向代价（典型：改"当前值"会让历史口径变错），必须在人类做决定**之前**讲清楚。事后补一句"另外你要知道……"，他当时做的就不是知情决策。
+
+**凭证口径：** 不新增密码副本（不写进新文件、不打印、不放进命令行参数）；已有文件里的值可以读进进程用一次；要长期存放到某个配置文件时，由人类自己粘贴，AI 给出确切位置和格式；凭证一旦进过对话记录，提醒人类用完更换，只提醒一次。
+
+**不适用：** 只读查询、本地开发与测试、临时文件、给人类本人看的本地预览、发给人类本人的测试消息。
+
+**实践注记：** 一些 AI 宿主的自动模式会拦下生产写操作，即使人类在聊天里同意了也不放行。这时的正确做法是：AI 把整串命令写好（真值，不留占位符），交给人类在自己的终端跑；AI 只做执行前后的只读核对。
+
+### 5.18 活交接文档 (v3.0)
+
+一项工作跨多个会话、需要在窗口或人之间交接时（大型迁移、切换、分批重构），在项目的 `docs/` 里维护一份**活交接文档**，固定三段：
+
+1. **🎯 北极星**——最终目标 + 关键架构定调（为什么这么做）。放最前，一切对齐它。
+2. **📋 当前代办**——接手者**只读 ①② 就能上手**：现在在哪、只剩什么、接手即做的步骤（带顺序和每步的验证）、已完成的前置、配套脚本、红线（不可逆、需签字、生产铁律）。
+3. **🕘 历史线**——每个会话做了什么（标 slot + sid + 日期、完成事项、验证结果）。供追溯，不是给接手者逐行读的。
+
+**硬约定：每次更新这份文档，必须同步更新「当前代办」**——做完的从代办移到历史线，写清新的下一步。被后来推翻的早期判断压成历史线里的一句话，正文只留当前的真相，别让它变成层层叠加的修正。
+
+### 5.19 对人类说话的口径 (v3.0)
+
+**对人类的输出只有两种：** 开场一行健康状态；或一句大白话"出了什么事、我已经做了什么（或打算怎么办）"。不出现闸门编号、级别、通过率、卡片编号，不发周报。依据：人类成员的消息有一半不超过 6 个字；弹出的提示被直接关掉；**任何需要他阅读理解的环节，等于不存在。**
+
+几条由事故换来的细则：
+
+- **给人类的命令写真值，不写占位符。** `<merge commit>` 这样的占位符会被原样粘贴执行。
+- **回滚命令不要和执行步骤贴在一起。** 有一次人类把六个命令块全跑了，最后两块是撤销，把刚上线的功能撤了回去。撤销命令只放在交接说明里。
+- **"做好了"不等于做好了。** 人类说"好了"、点了"已完成"按钮，都要先查证据（提交、页面、日志）；查不到就自己做或明确再问。
+- **能自己做的自己做。** 只把真正需要人类本人的那一步（登录、签字、按确认键）交出去，并写清楚是哪一个动作。
+
+---
+
 ## Appendix A: Version History
 
 | Version | Date | Changes |
@@ -1576,6 +1763,8 @@ and how the recommendation changes if that assumption is wrong]
 | 1.0 | March 2026 | Initial release. Cognitive Copilot + Multi-LLM Orchestration. |
 | 1.2 | March 2026 | Added Card Format v1.1 (merge_key, aliases, salience). Added dedup scoring. Added parallel session support. |
 | 2.0-draft | April 2026 | 10 new chapters: Deployment Safety, Hook Enforcement, CU Definition, Three-State Permissions, ISB Budget, Structured Anchors, Verification Events, Retrospective Cognitive Collection, Speed Mode Quantification, Challenge Output Tiering. |
+| 2.1 | June 2026 | Shared Worktree Discipline (5.6 §2.7). |
+| 3.0 | October 2026 | Four-layer memory rebuild. New: installable plugin + health line (5.14), session-start continuity and window lifespan by used days (5.15), constrained evolution — append-only facts, regenerable views, one-line incident log, card-read tracking, salience inflation fix (5.16), production change checkpoint (5.17), live handoff document (5.18), plain-language output to the human (5.19). Revised: hook failure direction + "a check must prove it can go red" (5.6), cognitive collection by autonomous judgment (2.4), heartbeat auto-save (5.3), three-layer deployment verification (5.5), review timeouts and effort (4.4). Removed: the dedicated research/multimodal AI member and its external model — research and multimodal now run in the main AI (4.1). |
 
 ## Appendix B: Concept Cross-Reference
 
@@ -1590,6 +1779,11 @@ and how the recommendation changes if that assumption is wrong]
 | Hook-Based Mechanical Enforcement | v2.0 | Multi-LLM | 2 (this draft) |
 | Speed Mode (S1-S4) | v2.0 | Cognitive Copilot | 9 (this draft) |
 | Challenge Output Tiering | v2.0 | Cognitive Copilot | 10 (this draft) |
+| Health Line / Gate-as-data (shadow→warn→deny) | v3.0 | This document | 5.14 |
+| Session-start fact lines / Window lifespan (used days) | v3.0 | This document | 5.15 |
+| Fact layer vs derived layer / Incident log | v3.0 | This document | 5.16 |
+| Production Change Checkpoint | v3.0 | This document | 5.17 |
+| Live Handoff Document | v3.0 | This document | 5.18 |
 | Codex Review Gate | v1.0 | Multi-LLM | 5 (original) |
 | GUAN Card Format v1.1 | v1.2 | Cognitive Copilot | 3 (original) |
 | Trigger Matrix v1.2 | v1.2 | Multi-LLM | 3 (original) |
@@ -1687,9 +1881,10 @@ and how the recommendation changes if that assumption is wrong]
 - **人类成员** — 业务理解、目标设定与最终决策
 - **GUAN** — 策划、长期记忆与叙事连续性
 - **Coco** — 实现、验证与结构化落地
-- **Gemi** — 基础设施执行与调研
 
 创世日：2026年3月14日
+
+> 早期团队还有一位负责基础设施与调研的AI成员。v3.0 起调研与多模态由主AI自跑（见第 4.1 节），该角色退役；它的私有记忆按 5.4「成员退出」的规则归档、不读取。
 
 > "鸣弦而治"——协作如琴弦共鸣。每根弦独立振动，合在一起就是音乐。
 

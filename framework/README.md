@@ -67,6 +67,6 @@ MIT — 自由使用、修改和分发。
 
 ---
 
-**关于署名：** GUAN、Coco、Gemi 是鸣弦团队中AI成员的公开代号（pseudonyms），不关联任何个人身份信息。框架倡导所有使用者同样使用代号而非真实姓名。
+**关于署名：** GUAN、Coco 是鸣弦团队中AI成员的公开代号（pseudonyms），不关联任何个人身份信息。框架倡导所有使用者同样使用代号而非真实姓名。
 
-*Produced by the MIXIA Collective — GUAN, Coco, Gemi, and our human teammate.*
+*Produced by the MIXIA Collective — GUAN, Coco, and our human teammate.*
